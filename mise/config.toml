@@ -1,0 +1,70 @@
+# Mise configuration for global tool versions
+#
+# This config documents current versions and provides a migration path
+#
+# Current setup uses:
+# - nvm for Node.js (currently: v22.13.1)
+# - pyenv for Python (currently: system)
+# - bun standalone (currently: 1.0.0)
+# - cargo/rustup for Rust (currently: 1.91.1)
+#
+# TO MIGRATE TO MISE:
+# 1. Install mise: brew install mise
+# 2. Uncomment the mise activation line in shell/zshrc
+# 3. Optionally remove old version managers from zshrc (nvm, pyenv sections)
+# 4. Uncomment the tool versions below
+# 5. Run: mise install
+# 6. Restart shell
+
+# ============================================================================
+# Tool Versions
+# ============================================================================
+# Uncomment and adjust versions when migrating to mise:
+
+[tools]
+# Node.js version (currently managed by nvm)
+# node = "22.13.1"
+
+# Python version (currently managed by pyenv)
+# python = "3.13"
+
+# Bun version (currently standalone install)
+# bun = "1.0.0"
+
+# Rust (optional - usually managed by rustup)
+# rust = "1.91.1"
+
+# Additional tools you might want to add:
+# pnpm = "latest"
+# go = "latest"
+# deno = "latest"
+
+# ============================================================================
+# Per-project version overrides
+# ============================================================================
+# You can override these versions in any project by creating a .mise.toml
+# file in the project root with different versions.
+#
+# Example project .mise.toml:
+#   [tools]
+#   node = "20.11.0"
+#   python = "3.11"
+#
+# This allows different projects to use different tool versions while
+# maintaining a consistent baseline across all projects.
+
+# ============================================================================
+# Configuration Options
+# ============================================================================
+# [settings]
+# experimental = true
+# verbose = false
+# jobs = 4  # number of jobs to run in parallel during installation
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+# You can set environment variables globally here:
+# [env]
+# NODE_ENV = "development"
+# PYTHON_ENV = "development"

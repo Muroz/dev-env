@@ -1,0 +1,35 @@
+# Homebrew Formula Packages
+# This file contains only explicitly installed packages (not dependencies)
+# Dependencies will be installed automatically by Homebrew
+#
+# Use 'brew leaves' to see which packages were explicitly installed
+# Use 'brew deps <package>' to see dependencies of a package
+
+# ============================================================================
+# Version Managers
+# ============================================================================
+
+# Node Version Manager - manage multiple Node.js versions
+nvm
+
+# Python version manager - manage multiple Python versions
+pyenv
+
+# ============================================================================
+# Python Tools
+# ============================================================================
+
+# Python dependency management and packaging tool (modern alternative to pip/setuptools)
+poetry
+
+# ============================================================================
+# Geospatial & Mapping Tools
+# ============================================================================
+
+# Tool for creating vector tilesets optimized for web maps
+# Used for geographic data visualization and mapping projects
+tippecanoe
+
+# Tool for reading and writing PMTiles archives (cloud-optimized map tile format)
+# Enables efficient map tile storage and serving
+pmtiles

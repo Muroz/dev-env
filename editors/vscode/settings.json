@@ -1,0 +1,229 @@
+{
+    // ========================================================================
+    // Editor Settings
+    // ========================================================================
+
+    // Wrap tabs when many files are open
+    "workbench.editor.wrapTabs": true,
+
+    // Custom labels for index files to show parent directory
+    "workbench.editor.customLabels.patterns": {
+        "*/lib/**/index.ts": "/${dirname}"
+    },
+
+    // Auto-save files after a delay
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000,
+
+    // Trim trailing whitespace on save
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+
+    // ========================================================================
+    // Git Settings
+    // ========================================================================
+
+    // Automatically fetch git changes
+    "git.autofetch": true,
+
+    // Confirm before syncing
+    "git.confirmSync": false,
+
+    // Enable smart commit (stage all changes if nothing is staged)
+    "git.enableSmartCommit": true,
+
+    // ========================================================================
+    // GitLens Settings
+    // ========================================================================
+
+    "gitlens.views.scm.grouped.views": {
+        "commits": true,
+        "branches": true,
+        "remotes": true,
+        "stashes": false,
+        "tags": true,
+        "worktrees": true,
+        "contributors": true,
+        "repositories": false,
+        "searchAndCompare": false,
+        "launchpad": false
+    },
+
+    // ========================================================================
+    // TypeScript/JavaScript Settings
+    // ========================================================================
+
+    // Don't auto-update imports when moving files (prevents unexpected changes)
+    "typescript.updateImportsOnFileMove.enabled": "never",
+
+    // Enable inlay hints for better code understanding
+    "typescript.inlayHints.parameterNames.enabled": "literals",
+    "typescript.inlayHints.functionLikeReturnTypes.enabled": true,
+    "javascript.inlayHints.parameterNames.enabled": "literals",
+
+    // ========================================================================
+    // Formatting Settings (Language-Specific)
+    // ========================================================================
+
+    // TypeScript & TSX - Use Prettier
+    "[typescript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": "explicit"
+        }
+    },
+
+    "[typescriptreact]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": "explicit"
+        }
+    },
+
+    // JavaScript & JSX - Use Prettier (changed from prettier-eslint combo)
+    "[javascript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": "explicit"
+        }
+    },
+
+    "[javascriptreact]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": "explicit"
+        }
+    },
+
+    // JSON & JSONC - Use built-in formatter for JSON, Prettier for JSONC
+    "[json]": {
+        "editor.defaultFormatter": "vscode.json-language-features",
+        "editor.formatOnSave": true
+    },
+
+    "[jsonc]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true
+    },
+
+    // Markdown - Use Prettier
+    "[markdown]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": false
+    },
+
+    // CSS, SCSS, LESS - Use Prettier
+    "[css]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true
+    },
+
+    "[scss]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true
+    },
+
+    "[less]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true
+    },
+
+    // HTML - Use Prettier
+    "[html]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true
+    },
+
+    // Vue - Use Volar (removed as extension was not in your list)
+    // "[vue]": {
+    //     "editor.defaultFormatter": "Vue.volar"
+    // },
+
+    // Python - Use built-in formatter
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.python",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+
+    // ========================================================================
+    // ESLint Settings
+    // ========================================================================
+
+    // Enable ESLint for various file types
+    "eslint.validate": [
+        "javascript",
+        "javascriptreact",
+        "typescript",
+        "typescriptreact"
+    ],
+
+    // ========================================================================
+    // Python Settings
+    // ========================================================================
+
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true,
+
+    // ========================================================================
+    // Tailwind CSS Settings
+    // ========================================================================
+
+    // Enable Tailwind IntelliSense for more file types
+    "tailwindCSS.experimental.classRegex": [
+        ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+        ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+    ],
+
+    // ========================================================================
+    // Claude Code Settings
+    // ========================================================================
+
+    // Prefer Claude Code in panel (bottom) instead of sidebar
+    "claudeCode.preferredLocation": "panel",
+
+    // ========================================================================
+    // Terminal Settings
+    // ========================================================================
+
+    "terminal.integrated.fontSize": 13,
+    "terminal.integrated.fontFamily": "MesloLGS NF",
+
+    // ========================================================================
+    // Editor Appearance
+    // ========================================================================
+
+    "editor.fontSize": 14,
+    "editor.fontFamily": "Menlo, Monaco, 'Courier New', monospace",
+    "editor.lineHeight": 1.6,
+    "editor.minimap.enabled": true,
+    "editor.renderWhitespace": "boundary",
+    "editor.rulers": [80, 120],
+    "editor.wordWrap": "on",
+    "editor.bracketPairColorization.enabled": true,
+    "editor.guides.bracketPairs": true,
+
+    // ========================================================================
+    // IntelliSense & Suggestions
+    // ========================================================================
+
+    "editor.suggestSelection": "first",
+    "editor.tabCompletion": "on",
+    "editor.acceptSuggestionOnCommitCharacter": false,
+
+    // ========================================================================
+    // Workbench Settings
+    // ========================================================================
+
+    "workbench.colorTheme": "Default Dark Modern",
+    "workbench.iconTheme": "vs-seti",
+    "workbench.startupEditor": "welcomePage"
+}
