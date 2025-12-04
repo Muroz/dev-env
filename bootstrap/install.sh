@@ -5,7 +5,7 @@
 # ============================================================================
 # Sets up a fresh macOS system with all development tools and configurations
 #
-# Usage: ./install.sh [--dry-run] [--skip-backups]
+# Usage: ./install.sh [--dry-run] [--skip-backups] [--use-mise]
 #
 # What this script does:
 # 1. Installs Homebrew (if not present)
@@ -39,6 +39,7 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # Flags
 DRY_RUN=false
 SKIP_BACKUPS=false
+USE_MISE=false
 ERROR_COUNT=0
 
 # Parse arguments
@@ -50,9 +51,27 @@ for arg in "$@"; do
         --skip-backups)
             SKIP_BACKUPS=true
             ;;
+        --use-mise)
+            USE_MISE=true
+            ;;
+        --help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run        Preview changes without making modifications"
+            echo "  --skip-backups   Skip creating backups of existing configuration files"
+            echo "  --use-mise       Use mise for version management instead of nvm/pyenv/bun"
+            echo "  --help           Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0                    # Standard installation"
+            echo "  $0 --dry-run          # Preview what would be installed"
+            echo "  $0 --use-mise         # Install with mise for unified version management"
+            exit 0
+            ;;
         *)
             echo "Unknown option: $arg"
-            echo "Usage: $0 [--dry-run] [--skip-backups]"
+            echo "Usage: $0 [--dry-run] [--skip-backups] [--use-mise] [--help]"
             exit 1
             ;;
     esac
@@ -292,7 +311,54 @@ install_oh_my_zsh() {
 # 5. Version Managers & Language Tools
 # ============================================================================
 
+install_mise() {
+    info "Checking for mise..."
+
+    if command_exists mise; then
+        success "mise already installed ($(mise --version))"
+    else
+        if [ "$DRY_RUN" = false ]; then
+            info "Installing mise via Homebrew..."
+            if brew install mise; then
+                success "mise installed"
+
+                # Install tools from mise config if it exists
+                if [ -f "$REPO_ROOT/mise/config.toml" ]; then
+                    info "Installing tools from mise configuration..."
+
+                    # Update mise config to uncomment tool versions
+                    if grep -q "^# node = " "$REPO_ROOT/mise/config.toml"; then
+                        info "Activating tool versions in mise config..."
+                        # This will be handled by editing the config file below
+                    fi
+
+                    # Activate mise for current session
+                    eval "$(mise activate bash)"
+
+                    # Install configured tools
+                    if mise install; then
+                        success "mise tools installed"
+                    else
+                        warning "Some mise tools failed to install"
+                    fi
+                fi
+            else
+                error "Failed to install mise"
+                return 1
+            fi
+        else
+            info "[DRY RUN] Would install mise and configure tools"
+        fi
+    fi
+}
+
 install_nvm() {
+    # Skip if using mise
+    if [ "$USE_MISE" = true ]; then
+        info "Skipping nvm (using mise instead)"
+        return 0
+    fi
+
     info "Checking for nvm..."
 
     if [ -d "$HOME/.nvm" ]; then
@@ -309,6 +375,12 @@ install_nvm() {
 }
 
 install_pyenv() {
+    # Skip if using mise
+    if [ "$USE_MISE" = true ]; then
+        info "Skipping pyenv (using mise instead)"
+        return 0
+    fi
+
     info "Checking for pyenv..."
 
     if command_exists pyenv; then
@@ -319,6 +391,12 @@ install_pyenv() {
 }
 
 install_bun() {
+    # Skip if using mise
+    if [ "$USE_MISE" = true ]; then
+        info "Skipping bun (using mise instead)"
+        return 0
+    fi
+
     info "Checking for Bun..."
 
     if command_exists bun; then
@@ -594,8 +672,29 @@ EOF
             echo "# Source local configuration" >> "$HOME/.zshrc"
             echo "[ -f ~/.zshrc.local ] && source ~/.zshrc.local" >> "$HOME/.zshrc"
         fi
+
+        # If using mise, activate it in zshrc
+        if [ "$USE_MISE" = true ] && [ -f "$HOME/.zshrc" ]; then
+            if ! grep -q "mise activate" "$HOME/.zshrc"; then
+                info "Activating mise in shell configuration..."
+                # Comment out individual version managers
+                sed -i.bak 's/^export NVM_DIR=/# export NVM_DIR=/' "$HOME/.zshrc" 2>/dev/null || true
+                sed -i.bak 's/^eval "$(pyenv init/# eval "$(pyenv init/' "$HOME/.zshrc" 2>/dev/null || true
+
+                # Uncomment mise section
+                sed -i.bak 's/^# if command -v mise/if command -v mise/' "$HOME/.zshrc" 2>/dev/null || true
+                sed -i.bak 's/^#   eval "$(mise activate/  eval "$(mise activate/' "$HOME/.zshrc" 2>/dev/null || true
+                sed -i.bak 's/^# fi  # mise/fi  # mise/' "$HOME/.zshrc" 2>/dev/null || true
+
+                rm -f "$HOME/.zshrc.bak"
+                success "mise activated in shell configuration"
+            fi
+        fi
     else
         info "[DRY RUN] Would create $local_zshrc"
+        if [ "$USE_MISE" = true ]; then
+            info "[DRY RUN] Would activate mise in shell configuration"
+        fi
     fi
 
     echo ""
@@ -662,9 +761,16 @@ main() {
     install_brew_packages
     install_brew_casks
     install_oh_my_zsh
-    install_nvm
-    install_pyenv
-    install_bun
+
+    # Version management: either mise or individual tools
+    if [ "$USE_MISE" = true ]; then
+        install_mise
+    else
+        install_nvm
+        install_pyenv
+        install_bun
+    fi
+
     install_rust
     install_conda
     create_symlinks

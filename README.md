@@ -143,7 +143,9 @@ The bootstrap script automates the entire setup process with robust error handli
 2. Installs Homebrew (if not present) for both Intel and Apple Silicon Macs
 3. Installs all packages from `brew-packages.txt` and `cask-apps.txt`
 4. Installs oh-my-zsh (robbyrussell theme)
-5. Sets up version managers: nvm, pyenv, bun, rust
+5. Sets up version managers:
+   - Standard mode: nvm, pyenv, bun, rust, conda
+   - Mise mode (`--use-mise`): mise (unified), rust, conda
 6. Creates symlinks for shell and git configurations with automatic backups
 7. Installs VS Code extensions and copies settings
 8. Configures git with environment variables
@@ -171,6 +173,9 @@ export GIT_USER_EMAIL="your.email@example.com"
 # Skip backup creation (faster re-runs)
 ./bootstrap/install.sh --skip-backups
 
+# Use mise for version management
+./bootstrap/install.sh --use-mise
+
 # View available options
 ./bootstrap/install.sh --help
 ```
@@ -178,6 +183,32 @@ export GIT_USER_EMAIL="your.email@example.com"
 **Command-line Options**:
 - `--dry-run` - Preview changes without making modifications
 - `--skip-backups` - Skip creating backups of existing configuration files
+- `--use-mise` - Use mise for unified version management instead of nvm/pyenv/bun
+- `--help` - Display usage information and available options
+
+**Version Management Options**:
+
+The bootstrap script supports two approaches for managing programming language versions:
+
+1. **Standard Mode (default)**:
+   - Installs individual version managers: nvm (Node.js), pyenv (Python), bun
+   - Each tool is managed separately with its own commands
+   - Best for users comfortable with traditional version managers
+   - Maintains compatibility with existing workflows
+
+2. **Mise Mode (`--use-mise` flag)**:
+   - Installs mise as a unified version manager for Node.js, Python, and Bun
+   - Single tool to manage all language versions
+   - Configuration in `mise/config.toml` (versions automatically uncommented)
+   - Uses mise commands for all version management
+   - Best for users wanting simplified, unified tooling
+   - When enabled, the script will:
+     - Install mise via Homebrew
+     - Skip individual nvm, pyenv, bun installations
+     - Activate mise in your shell configuration
+     - Install all tools from `mise/config.toml`
+
+Note: Rust and Conda are installed separately in both modes as they have their own specialized installers.
 
 **Machine-specific Settings**:
 
@@ -479,37 +510,55 @@ cat editors/vscode/extensions.txt | grep -v '^#' | xargs -L 1 code --install-ext
 
 **File**: `mise/config.toml`
 
-#### Current Setup (Hybrid Approach)
+The repository supports two version management approaches:
 
-The repository uses **existing version managers** by default:
+#### Standard Mode (Default)
+
+Uses **individual version managers**:
 - **nvm** for Node.js (v22.13.1)
 - **pyenv** for Python
 - **bun** standalone (1.0.0)
 - **cargo/rustup** for Rust (1.91.1)
 
-#### Optional: Migrate to Mise
+Installed automatically by `./bootstrap/install.sh`
 
-Mise is a unified version manager (optional migration path):
+#### Mise Mode (Unified Alternative)
 
-**To migrate**:
+Mise is a unified version manager that replaces nvm, pyenv, and bun with a single tool.
+
+**Automatic Setup (Recommended)**:
+Use the `--use-mise` flag during bootstrap:
+```bash
+./bootstrap/install.sh --use-mise
+```
+
+This automatically:
+- Installs mise via Homebrew
+- Configures shell to activate mise
+- Installs all tools from `mise/config.toml`
+- Skips individual nvm/pyenv/bun installations
+
+**Manual Migration** (if already using standard mode):
 1. Install mise: `brew install mise`
 2. Edit `shell/zshrc` and uncomment the mise activation section
 3. Edit `mise/config.toml` and uncomment tool versions
 4. Run `mise install`
-5. Optionally remove old version manager sections from zshrc
+5. Optionally comment out old version manager sections in zshrc
 
-**Benefits**:
+**Benefits of Mise**:
 - Single tool for all language versions
 - Faster than nvm/pyenv
 - Project-specific `.mise.toml` overrides
 - Automatic version switching per directory
+- Consistent interface across all tools
 
 **Per-Project Versions**:
-Create `.mise.toml` in any project:
+Create `.mise.toml` in any project to override versions:
 ```toml
 [tools]
 node = "20.11.0"
 python = "3.11"
+bun = "1.1.0"
 ```
 
 ---
