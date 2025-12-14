@@ -6,13 +6,24 @@
 # Use 'brew deps <package>' to see dependencies of a package
 
 # ============================================================================
-# Version Managers
+# Version Managers (Unified) - Only installed with --use-mise flag
+# ============================================================================
+
+# mise - Unified version manager for Node, Python, Bun, and more
+# Replaces nvm, pyenv, and standalone bun installations
+# [CONDITIONAL: USE_MISE]
+mise
+
+# ============================================================================
+# Version Managers (Individual) - Skipped when --use-mise is used
 # ============================================================================
 
 # Node Version Manager - manage multiple Node.js versions
+# [CONDITIONAL: !USE_MISE]
 nvm
 
 # Python version manager - manage multiple Python versions
+# [CONDITIONAL: !USE_MISE]
 pyenv
 
 # ============================================================================

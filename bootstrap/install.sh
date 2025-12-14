@@ -60,13 +60,15 @@ for arg in "$@"; do
             echo "Options:"
             echo "  --dry-run        Preview changes without making modifications"
             echo "  --skip-backups   Skip creating backups of existing configuration files"
-            echo "  --use-mise       Use mise for version management instead of nvm/pyenv/bun"
+            echo "  --use-mise       Use mise for unified version management (Node, Python, Bun)"
+            echo "                   This will skip installing nvm, pyenv, and standalone bun"
             echo "  --help           Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0                    # Standard installation"
+            echo "  $0                    # Standard installation (nvm, pyenv, bun)"
             echo "  $0 --dry-run          # Preview what would be installed"
             echo "  $0 --use-mise         # Install with mise for unified version management"
+            echo "  $0 --dry-run --use-mise  # Preview mise installation"
             exit 0
             ;;
         *)
@@ -184,6 +186,24 @@ install_homebrew() {
 # 2. Brew Packages Installation
 # ============================================================================
 
+# Helper function to check if a package should be installed based on conditions
+should_install_package() {
+    local package="$1"
+    local prev_line="$2"
+
+    # Check for conditional markers in the previous comment line
+    if [[ "$prev_line" =~ \[CONDITIONAL:\ USE_MISE\] ]]; then
+        # Only install if USE_MISE is true
+        [ "$USE_MISE" = true ] && return 0 || return 1
+    elif [[ "$prev_line" =~ \[CONDITIONAL:\ !USE_MISE\] ]]; then
+        # Only install if USE_MISE is false
+        [ "$USE_MISE" = false ] && return 0 || return 1
+    fi
+
+    # No condition found, always install
+    return 0
+}
+
 install_brew_packages() {
     info "Installing Homebrew packages..."
 
@@ -194,11 +214,30 @@ install_brew_packages() {
 
     local package_count=0
     local installed_count=0
+    local skipped_count=0
     local failed_packages=()
+    local prev_line=""
 
-    while IFS= read -r package; do
-        # Skip empty lines and comments
-        [[ -z "$package" || "$package" =~ ^# ]] && continue
+    while IFS= read -r line; do
+        # Track previous line for conditional checking
+        if [[ "$line" =~ ^# ]] || [[ -z "$line" ]]; then
+            prev_line="$line"
+            continue
+        fi
+
+        local package="$line"
+
+        # Check if package should be installed based on conditions
+        if ! should_install_package "$package" "$prev_line"; then
+            if [[ "$prev_line" =~ \[CONDITIONAL:\ USE_MISE\] ]]; then
+                info "  ⊘ $package (skipped - not using mise)"
+            else
+                info "  ⊘ $package (skipped - using mise instead)"
+            fi
+            ((skipped_count++))
+            prev_line="$line"
+            continue
+        fi
 
         ((package_count++))
 
@@ -218,10 +257,20 @@ install_brew_packages() {
                 info "[DRY RUN] Would install $package"
             fi
         fi
+
+        prev_line="$line"
     done < "$REPO_ROOT/bootstrap/brew-packages.txt"
 
     if [ ${#failed_packages[@]} -ne 0 ]; then
         warning "Failed to install: ${failed_packages[*]}"
+    fi
+
+    if [ $skipped_count -gt 0 ]; then
+        if [ "$USE_MISE" = true ]; then
+            info "Skipped $skipped_count package(s) (using mise for version management)"
+        else
+            info "Skipped $skipped_count package(s) (mise not enabled)"
+        fi
     fi
 
     success "Brew packages: $installed_count/$package_count installed"
@@ -311,45 +360,80 @@ install_oh_my_zsh() {
 # 5. Version Managers & Language Tools
 # ============================================================================
 
-install_mise() {
-    info "Checking for mise..."
+setup_mise_config() {
+    # This function is called after mise is installed via brew packages
+    # It handles configuration and tool installation
 
-    if command_exists mise; then
-        success "mise already installed ($(mise --version))"
-    else
-        if [ "$DRY_RUN" = false ]; then
-            info "Installing mise via Homebrew..."
-            if brew install mise; then
-                success "mise installed"
+    info "Configuring mise..."
 
-                # Install tools from mise config if it exists
-                if [ -f "$REPO_ROOT/mise/config.toml" ]; then
-                    info "Installing tools from mise configuration..."
+    local config_file="$REPO_ROOT/mise/config.toml"
+    local global_config="$HOME/.config/mise/config.toml"
 
-                    # Update mise config to uncomment tool versions
-                    if grep -q "^# node = " "$REPO_ROOT/mise/config.toml"; then
-                        info "Activating tool versions in mise config..."
-                        # This will be handled by editing the config file below
-                    fi
-
-                    # Activate mise for current session
-                    eval "$(mise activate bash)"
-
-                    # Install configured tools
-                    if mise install; then
-                        success "mise tools installed"
-                    else
-                        warning "Some mise tools failed to install"
-                    fi
-                fi
-            else
-                error "Failed to install mise"
-                return 1
-            fi
-        else
-            info "[DRY RUN] Would install mise and configure tools"
-        fi
+    if [ ! -f "$config_file" ]; then
+        warning "mise config.toml not found at $config_file"
+        return 1
     fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would uncomment tool versions in mise config"
+        info "[DRY RUN] Would create symlink: $global_config → $config_file"
+        info "[DRY RUN] Would run: mise install"
+        return 0
+    fi
+
+    # At this point, we're not in dry-run mode, so mise should be installed
+    if ! command_exists mise; then
+        error "mise not found - this should have been installed via brew packages"
+        info "Try running: brew install mise"
+        return 1
+    fi
+
+    # Uncomment tool versions in the config file
+    if grep -q "^# node = " "$config_file"; then
+        info "Activating tool versions in mise config..."
+
+        # Create a backup
+        cp "$config_file" "$config_file.bak"
+
+        # Uncomment the tool versions
+        sed -i.tmp 's/^# node = /node = /' "$config_file"
+        sed -i.tmp 's/^# python = /python = /' "$config_file"
+        sed -i.tmp 's/^# bun = /bun = /' "$config_file"
+
+        rm -f "$config_file.tmp"
+        success "Tool versions activated in config"
+    fi
+
+    # Create mise config directory and symlink
+    mkdir -p "$(dirname "$global_config")"
+
+    if [ -e "$global_config" ] && [ ! -L "$global_config" ]; then
+        # Backup existing config if it's not a symlink
+        mv "$global_config" "$global_config.backup-$(date +%Y%m%d_%H%M%S)"
+        info "Backed up existing mise config"
+    fi
+
+    # Create symlink to our config
+    ln -sf "$config_file" "$global_config"
+    success "Symlinked mise config: $global_config → $config_file"
+
+    # Activate mise for current session
+    eval "$(mise activate bash)"
+
+    # Install configured tools
+    info "Installing mise tools (this may take a few minutes)..."
+    if mise install; then
+        success "mise tools installed successfully"
+
+        # Show what was installed
+        info "Installed tools:"
+        mise list 2>/dev/null | sed 's/^/  /'
+    else
+        warning "Some mise tools failed to install"
+        return 1
+    fi
+
+    return 0
 }
 
 install_nvm() {
@@ -726,11 +810,18 @@ EOF
     echo "     code ~/.zshrc.local"
     echo ""
 
-    info "Optional enhancements:"
-    echo "  - Install mise for unified version management:"
-    echo "      brew install mise"
-    echo "      # Then uncomment mise section in shell/zshrc"
-    echo ""
+    if [ "$USE_MISE" = true ]; then
+        info "Version management configured with mise"
+        echo "  - To add more tools, edit: $REPO_ROOT/mise/config.toml"
+        echo "  - Then run: mise install"
+        echo ""
+    else
+        info "Optional enhancements:"
+        echo "  - Migrate to mise for unified version management:"
+        echo "      ./bootstrap/install.sh --use-mise"
+        echo ""
+    fi
+
     echo "  - Install git-delta for better diffs:"
     echo "      brew install git-delta"
     echo "      # Then uncomment delta section in git/gitconfig"
@@ -764,8 +855,11 @@ main() {
 
     # Version management: either mise or individual tools
     if [ "$USE_MISE" = true ]; then
-        install_mise
+        # mise is already installed via brew packages
+        # Now configure it and install tools
+        setup_mise_config
     else
+        # Install individual version managers
         install_nvm
         install_pyenv
         install_bun
