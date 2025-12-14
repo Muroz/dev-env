@@ -76,41 +76,64 @@ dev-env/
    cd ~/dev-env
    ```
 
-2. **Optional: Preview what will be installed** (recommended):
+2. **Choose your version management approach**:
+
+   **Option A: Standard Mode (Traditional)**
+   - Uses individual version managers: nvm, pyenv, bun
+   - Best for users comfortable with existing workflows
+
+   **Option B: Mise Mode (Unified)**
+   - Uses mise for all language version management
+   - Simpler, faster, single tool for Node.js, Python, and Bun
+   - Recommended for new setups
+
+3. **Preview what will be installed** (recommended):
    ```bash
    chmod +x bootstrap/install.sh
+
+   # Preview standard installation
    ./bootstrap/install.sh --dry-run
+
+   # Preview with mise
+   ./bootstrap/install.sh --dry-run --use-mise
    ```
 
-3. **Set environment variables** (for git configuration):
+4. **Set environment variables** (for git configuration):
    ```bash
    export GIT_USER_NAME="Your Name"
    export GIT_USER_EMAIL="your.email@example.com"
    ```
 
-4. **Run bootstrap script**:
+5. **Run bootstrap script**:
+
+   **Standard Mode:**
    ```bash
    ./bootstrap/install.sh
    ```
 
+   **Mise Mode:**
+   ```bash
+   ./bootstrap/install.sh --use-mise
+   ```
+
    The script will:
    - Check system dependencies
-   - Install all required tools
+   - Install all required tools (conditional based on mode)
    - Create automatic backups of existing configs
    - Report progress and any errors
    - Provide next steps at completion
 
-5. **Review local customizations** (optional):
+6. **Review local customizations** (optional):
    ```bash
    code ~/.zshrc.local
    ```
 
-6. **Restart your terminal** or source the new configuration:
+7. **Restart your terminal** or source the new configuration:
    ```bash
    source ~/.zshrc
    ```
 
-**Note**: If the script encounters errors, it will continue and report them at the end. You can re-run the script safely - it will skip already installed components.
+**Note**: The script is idempotent - you can re-run it safely and it will skip already installed components.
 
 ### Updating Existing Setup
 
@@ -195,20 +218,34 @@ The bootstrap script supports two approaches for managing programming language v
    - Each tool is managed separately with its own commands
    - Best for users comfortable with traditional version managers
    - Maintains compatibility with existing workflows
+   - **Packages installed**: nvm, pyenv, poetry, tippecanoe, pmtiles
+   - **Packages skipped**: mise
 
 2. **Mise Mode (`--use-mise` flag)**:
    - Installs mise as a unified version manager for Node.js, Python, and Bun
    - Single tool to manage all language versions
-   - Configuration in `mise/config.toml` (versions automatically uncommented)
+   - Configuration in `mise/config.toml` (versions automatically activated)
    - Uses mise commands for all version management
    - Best for users wanting simplified, unified tooling
-   - When enabled, the script will:
-     - Install mise via Homebrew
-     - Skip individual nvm, pyenv, bun installations
-     - Activate mise in your shell configuration
-     - Install all tools from `mise/config.toml`
+   - **Packages installed**: mise, poetry, tippecanoe, pmtiles
+   - **Packages skipped**: nvm, pyenv
+   - When enabled, the script automatically:
+     - Installs mise via Homebrew
+     - Skips individual nvm, pyenv, bun installations
+     - Uncomments tool versions in `mise/config.toml`
+     - Creates symlink to global mise config (`~/.config/mise/config.toml`)
+     - Activates mise in your shell configuration
+     - Installs all configured tools (Node.js, Python, Bun)
+     - Shows installed tool versions
 
-Note: Rust and Conda are installed separately in both modes as they have their own specialized installers.
+**How the conditional installation works**:
+- The script reads `brew-packages.txt` which contains conditional markers
+- Packages marked `[CONDITIONAL: USE_MISE]` are only installed with `--use-mise`
+- Packages marked `[CONDITIONAL: !USE_MISE]` are skipped when using `--use-mise`
+- During installation, you'll see clear messages about which packages are skipped and why
+- This ensures clean, non-conflicting installations in both modes
+
+**Note**: Rust (via rustup) and Conda are installed separately in both modes as they have their own specialized installers and ecosystems.
 
 **Machine-specific Settings**:
 
@@ -221,13 +258,14 @@ The script creates `~/.zshrc.local` for machine-specific customizations that are
 This keeps the repository clean while allowing per-machine customization.
 
 **Brew Packages** (`brew-packages.txt`):
-- `nvm` - Node.js version manager
-- `pyenv` - Python version manager
-- `poetry` - Python dependency management
-- `tippecanoe` - Vector tileset creation for mapping
-- `pmtiles` - Cloud-optimized map tiles
+- `mise` - Unified version manager (only with `--use-mise`)
+- `nvm` - Node.js version manager (skipped with `--use-mise`)
+- `pyenv` - Python version manager (skipped with `--use-mise`)
+- `poetry` - Python dependency management (always installed)
+- `tippecanoe` - Vector tileset creation for mapping (always installed)
+- `pmtiles` - Cloud-optimized map tiles (always installed)
 
-**Note**: Only explicitly installed packages are listed. Dependencies are installed automatically by Homebrew.
+**Note**: Only explicitly installed packages are listed. Dependencies are installed automatically by Homebrew. Packages with conditional markers are installed based on the `--use-mise` flag.
 
 **Error Handling**:
 
@@ -510,56 +548,176 @@ cat editors/vscode/extensions.txt | grep -v '^#' | xargs -L 1 code --install-ext
 
 **File**: `mise/config.toml`
 
-The repository supports two version management approaches:
+The repository supports two version management approaches. Choose the one that fits your workflow:
+
+---
+
+#### Comparison Table
+
+| Feature | Standard Mode | Mise Mode |
+|---------|--------------|-----------|
+| **Installation** | `./bootstrap/install.sh` | `./bootstrap/install.sh --use-mise` |
+| **Node.js** | nvm | mise |
+| **Python** | pyenv | mise |
+| **Bun** | Standalone | mise |
+| **Rust** | rustup (both modes) | rustup (both modes) |
+| **Conda** | Conda (both modes) | Conda (both modes) |
+| **Commands** | `nvm use`, `pyenv shell`, etc. | `mise use`, `mise install` |
+| **Config File** | Multiple (.nvmrc, .python-version) | Single (.mise.toml) |
+| **Auto-switching** | Limited | Yes, per directory |
+| **Speed** | Slower (shell wrappers) | Faster (native binary) |
+
+---
 
 #### Standard Mode (Default)
 
 Uses **individual version managers**:
 - **nvm** for Node.js (v22.13.1)
-- **pyenv** for Python
+- **pyenv** for Python (system)
 - **bun** standalone (1.0.0)
 - **cargo/rustup** for Rust (1.91.1)
+- **conda** for data science environments
 
-Installed automatically by `./bootstrap/install.sh`
+**Installation**:
+```bash
+./bootstrap/install.sh
+```
+
+**Usage Examples**:
+```bash
+# Node.js
+nvm install 20.11.0
+nvm use 20.11.0
+
+# Python
+pyenv install 3.11.0
+pyenv global 3.11.0
+
+# Bun
+bun upgrade
+```
+
+**Best for**:
+- Users familiar with traditional version managers
+- Projects with existing `.nvmrc` or `.python-version` files
+- Teams using standard tooling
+
+---
 
 #### Mise Mode (Unified Alternative)
 
-Mise is a unified version manager that replaces nvm, pyenv, and bun with a single tool.
+Uses **mise** as a unified version manager that replaces nvm, pyenv, and bun with a single tool.
 
 **Automatic Setup (Recommended)**:
-Use the `--use-mise` flag during bootstrap:
 ```bash
 ./bootstrap/install.sh --use-mise
 ```
 
 This automatically:
-- Installs mise via Homebrew
-- Configures shell to activate mise
-- Installs all tools from `mise/config.toml`
-- Skips individual nvm/pyenv/bun installations
+1. Installs mise via Homebrew
+2. Skips individual nvm/pyenv/bun installations
+3. Uncomments tool versions in `mise/config.toml`
+4. Creates symlink: `~/.config/mise/config.toml` → `~/dev-env/mise/config.toml`
+5. Activates mise in shell configuration
+6. Installs all configured tools (Node.js 22.13.1, Python 3.13, Bun 1.0.0)
+7. Shows installed tool versions
 
-**Manual Migration** (if already using standard mode):
-1. Install mise: `brew install mise`
-2. Edit `shell/zshrc` and uncomment the mise activation section
-3. Edit `mise/config.toml` and uncomment tool versions
-4. Run `mise install`
-5. Optionally comment out old version manager sections in zshrc
+**Usage Examples**:
+```bash
+# View installed tools
+mise list
 
-**Benefits of Mise**:
-- Single tool for all language versions
-- Faster than nvm/pyenv
-- Project-specific `.mise.toml` overrides
-- Automatic version switching per directory
-- Consistent interface across all tools
+# Install a different version
+mise install node@20.11.0
+mise use node@20.11.0
+
+# Update all tools
+mise upgrade
+
+# See which version is active
+mise current
+```
+
+**Configuration**:
+Global config at `~/.config/mise/config.toml` (symlinked to `~/dev-env/mise/config.toml`):
+```toml
+[tools]
+node = "22.13.1"
+python = "3.13"
+bun = "1.0.0"
+```
 
 **Per-Project Versions**:
-Create `.mise.toml` in any project to override versions:
+Create `.mise.toml` in any project to override global versions:
 ```toml
 [tools]
 node = "20.11.0"
 python = "3.11"
 bun = "1.1.0"
 ```
+
+mise will automatically switch to these versions when you `cd` into the project directory.
+
+**Benefits of Mise**:
+- Single tool for all language versions
+- Significantly faster than nvm/pyenv (native binary vs shell wrappers)
+- Project-specific `.mise.toml` overrides with auto-switching
+- Automatic version switching per directory
+- Consistent interface across all tools
+- Better integration with modern development workflows
+- Can still read `.nvmrc` and `.python-version` files
+
+**Best for**:
+- New setups or fresh installations
+- Users wanting simplified, unified tooling
+- Projects using multiple language runtimes
+- Teams adopting modern development practices
+
+---
+
+#### Manual Migration (Standard → Mise)
+
+If you're already using standard mode and want to migrate:
+
+1. **Install mise**:
+   ```bash
+   brew install mise
+   ```
+
+2. **Edit shell configuration**:
+   ```bash
+   code ~/dev-env/shell/zshrc
+   # Uncomment the mise activation section
+   # Optionally comment out nvm/pyenv sections
+   ```
+
+3. **Activate tool versions**:
+   ```bash
+   code ~/dev-env/mise/config.toml
+   # Uncomment tool version lines (node, python, bun)
+   ```
+
+4. **Create symlink and install tools**:
+   ```bash
+   mkdir -p ~/.config/mise
+   ln -sf ~/dev-env/mise/config.toml ~/.config/mise/config.toml
+   mise install
+   ```
+
+5. **Reload shell**:
+   ```bash
+   source ~/.zshrc
+   ```
+
+6. **Verify installation**:
+   ```bash
+   mise list
+   node --version
+   python --version
+   bun --version
+   ```
+
+**Note**: You can keep both systems installed, but make sure only one is active in your shell at a time.
 
 ---
 
@@ -820,6 +978,93 @@ source ~/.zshrc
 chmod +x bootstrap/install.sh
 chmod +x scripts/update-tools.sh
 ```
+
+### Mise installation issues
+
+**Problem**: `mise install` fails or mise tools not activating
+
+**Solution**:
+```bash
+# Verify mise is installed
+mise --version
+
+# Check if config is properly symlinked
+ls -la ~/.config/mise/config.toml
+
+# If not, create symlink manually
+mkdir -p ~/.config/mise
+ln -sf ~/dev-env/mise/config.toml ~/.config/mise/config.toml
+
+# Verify tool versions are uncommented in config
+cat ~/dev-env/mise/config.toml | grep -v '^#' | grep -E '(node|python|bun)'
+
+# Try installing again
+mise install
+
+# Check shell activation
+grep -E 'mise activate' ~/.zshrc
+```
+
+### Wrong version manager active
+
+**Problem**: Using mise mode but nvm/pyenv commands still work (or vice versa)
+
+**Solution**:
+```bash
+# Check what's active in your shell
+which nvm node python
+
+# If using mise mode, ensure mise is activated
+grep 'mise activate' ~/.zshrc
+
+# Ensure old version managers are commented out
+grep 'NVM_DIR\|pyenv init' ~/.zshrc
+
+# Reload shell
+source ~/.zshrc
+
+# Verify mise is working
+mise current
+```
+
+### Conflicting package installations
+
+**Problem**: Both mise and nvm/pyenv are installed after running bootstrap
+
+**Solution**:
+This can happen if you ran the script without `--use-mise` first, then with `--use-mise`.
+
+```bash
+# To clean up and use mise:
+brew uninstall nvm pyenv
+rm -rf ~/.nvm ~/.pyenv
+
+# Re-run bootstrap with mise
+./bootstrap/install.sh --use-mise --skip-backups
+
+# Or to clean up and use standard mode:
+brew uninstall mise
+rm -rf ~/.config/mise
+
+# Re-run bootstrap without mise flag
+./bootstrap/install.sh --skip-backups
+```
+
+### Dry-run shows incorrect packages
+
+**Problem**: Dry-run output doesn't match expected packages for chosen mode
+
+**Solution**:
+Make sure you're using the correct flags:
+```bash
+# For standard mode preview
+./bootstrap/install.sh --dry-run
+
+# For mise mode preview
+./bootstrap/install.sh --dry-run --use-mise
+```
+
+The output should clearly show which packages are skipped and why.
 
 ---
 

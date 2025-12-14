@@ -5,16 +5,46 @@
 # ============================================================================
 # Sets up a fresh macOS system with all development tools and configurations
 #
-# Usage: ./install.sh [--dry-run] [--skip-backups] [--use-mise]
+# Usage: ./install.sh [OPTIONS]
+#
+# Options:
+#   --dry-run        Preview changes without making modifications
+#   --skip-backups   Skip creating backups of existing configuration files
+#   --use-mise       Use mise for unified version management (Node, Python, Bun)
+#   --help           Display usage information and available options
+#
+# Examples:
+#   ./install.sh                     # Standard installation (nvm, pyenv, bun)
+#   ./install.sh --dry-run           # Preview what would be installed
+#   ./install.sh --use-mise          # Install with mise for unified version management
+#   ./install.sh --dry-run --use-mise  # Preview mise installation
 #
 # What this script does:
-# 1. Installs Homebrew (if not present)
-# 2. Installs all brew packages and casks
-# 3. Installs oh-my-zsh (if not present)
-# 4. Installs global development tools (nvm, pyenv, bun, rust)
-# 5. Creates symlinks for configuration files
-# 6. Sets up VS Code extensions
-# 7. Configures git (with environment variables)
+# 1. Validates macOS system and required dependencies (curl, git)
+# 2. Installs Homebrew (if not present) for both Intel and Apple Silicon
+# 3. Installs brew packages from brew-packages.txt (conditionally based on --use-mise)
+# 4. Installs cask applications from cask-apps.txt
+# 5. Installs oh-my-zsh (if not present)
+# 6. Sets up version managers:
+#    - Standard mode: nvm, pyenv, bun, rust, conda
+#    - Mise mode (--use-mise): mise, rust, conda
+# 7. Creates symlinks for shell and git configurations (with automatic backups)
+# 8. Installs VS Code extensions and copies settings
+# 9. Configures git with environment variables
+# 10. Creates ~/.zshrc.local for machine-specific customizations
+#
+# Version Management Modes:
+#
+# Standard Mode (default):
+#   - Installs: nvm, pyenv, poetry, tippecanoe, pmtiles
+#   - Skips: mise
+#   - Best for users familiar with traditional version managers
+#
+# Mise Mode (--use-mise):
+#   - Installs: mise, poetry, tippecanoe, pmtiles
+#   - Skips: nvm, pyenv (bun installed via mise)
+#   - Automatically configures mise and installs tools from mise/config.toml
+#   - Best for users wanting simplified, unified tooling
 #
 # IMPORTANT: Set these environment variables before running:
 #   export GIT_USER_NAME="Your Name"
