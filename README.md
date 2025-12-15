@@ -241,6 +241,7 @@ Original config files are backed up before being replaced. To restore them:
 
 You can uninstall any of these sections individually:
 
+**Individual Sections:**
 - **homebrew** - Homebrew package manager (only removed if safe)
 - **brew_packages** - Homebrew formula packages
 - **brew_casks** - GUI applications (claude-code)
@@ -255,6 +256,36 @@ You can uninstall any of these sections individually:
 - **git_config** - Git user configuration
 - **shell_config** - Local shell configuration (~/.zshrc.local)
 
+**Section Groups:**
+
+You can also uninstall groups of related sections:
+
+```bash
+# Remove all version managers
+./bootstrap/uninstall.sh --sections "version_managers"
+# Includes: nvm, pyenv, bun, mise, rust
+
+# Remove all configuration files
+./bootstrap/uninstall.sh --sections "configs"
+# Includes: symlinks, git_config, shell_config
+
+# Remove VS Code setup
+./bootstrap/uninstall.sh --sections "vscode"
+# Includes: vscode_extensions
+
+# Remove all Homebrew components
+./bootstrap/uninstall.sh --sections "homebrew_all"
+# Includes: homebrew, brew_packages, brew_casks
+
+# Minimal setup (just configs)
+./bootstrap/uninstall.sh --sections "minimal"
+# Includes: symlinks, git_config, shell_config
+
+# Everything
+./bootstrap/uninstall.sh --sections "all"
+# Same as --all flag
+```
+
 ### Safety Features
 
 The uninstall system includes multiple safety mechanisms:
@@ -266,19 +297,49 @@ The uninstall system includes multiple safety mechanisms:
 5. **Backup Restoration**: Restore original config files from backups
 6. **State Tracking**: Knows what was installed and in which mode
 
-### Command Reference
+### Command-Line Options
+
+**Uninstall Flags:**
+
+- `--all` - Uninstall all installed sections
+- `--sections "id1,id2,..."` - Uninstall specific sections (comma-separated list or group name)
+- `--dry-run` - Preview changes without making modifications
+- `--remove-data` - Remove user data (Node.js versions, Python virtualenvs, etc.)
+- `--force` - Skip confirmation prompts (use with caution)
+- `--restore-backups` - Restore original config files from backup directory
+- `--status` - Show current installation status
+- `--list-sections` - Display all available sections and groups
+- `--verbose` - Show detailed output during uninstallation
+- `--help` - Display help message with examples
+
+**Examples:**
 
 ```bash
 # Show all options
 ./bootstrap/uninstall.sh --help
 
-# List available sections
+# List available sections and groups
 ./bootstrap/uninstall.sh --list-sections
 
-# Uninstall without confirmations (dangerous!)
+# Check what's installed
+./bootstrap/uninstall.sh --status
+
+# Preview full uninstall
+./bootstrap/uninstall.sh --all --dry-run
+
+# Uninstall specific sections
+./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
+
+# Uninstall using group
+./bootstrap/uninstall.sh --sections "version_managers"
+
+# Force uninstall without prompts (dangerous!)
 ./bootstrap/uninstall.sh --all --force
 
-# Verbose output
+# Remove everything including user data
+./bootstrap/uninstall.sh --all --remove-data
+
+# Verbose output for debugging
 ./bootstrap/uninstall.sh --all --verbose
 ```
 

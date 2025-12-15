@@ -9,25 +9,29 @@
 #
 # Options:
 #   --all                    Uninstall everything
-#   --sections "id1,id2..."  Uninstall specific sections (comma-separated)
+#   --sections "id1,id2..."  Uninstall specific sections or groups (comma-separated)
 #   --dry-run                Preview changes without making modifications
 #   --remove-data            Remove user data (Node versions, virtualenvs, etc.)
 #   --force                  Skip confirmation prompts
 #   --restore-backups        Restore original config files from backup
 #   --status                 Show what's currently installed
-#   --list-sections          Show all available sections
+#   --list-sections          Show all available sections and groups
 #   --verbose                Detailed output
 #   --help                   Show this help message
 #
 # Examples:
-#   ./uninstall.sh --all                    # Full uninstall (interactive)
-#   ./uninstall.sh --sections "nvm,pyenv"   # Remove specific sections
-#   ./uninstall.sh --all --dry-run          # Preview what would be removed
-#   ./uninstall.sh --status                 # Show installation status
+#   ./uninstall.sh --all                         # Full uninstall (interactive)
+#   ./uninstall.sh --sections "nvm,pyenv"        # Remove specific sections
+#   ./uninstall.sh --sections "version_managers" # Remove using group
+#   ./uninstall.sh --all --dry-run               # Preview what would be removed
+#   ./uninstall.sh --status                      # Show installation status
 #
 # Available Sections:
 #   homebrew, brew_packages, brew_casks, oh_my_zsh, nvm, pyenv, bun,
 #   mise, rust, symlinks, vscode_extensions, git_config, shell_config
+#
+# Available Groups:
+#   version_managers, configs, vscode, homebrew_all, minimal, all
 #
 # ============================================================================
 
@@ -84,6 +88,12 @@ Examples:
   # Remove specific sections
   ./uninstall.sh --sections "nvm,pyenv,bun"
 
+  # Remove using group
+  ./uninstall.sh --sections "version_managers"
+
+  # Remove multiple groups and sections
+  ./uninstall.sh --sections "configs,vscode"
+
   # Preview what would be removed
   ./uninstall.sh --all --dry-run
 
@@ -95,6 +105,9 @@ Examples:
 
   # Show installation status
   ./uninstall.sh --status
+
+  # List all sections and groups
+  ./uninstall.sh --list-sections
 
   # Restore backups
   ./uninstall.sh --restore-backups
@@ -113,6 +126,14 @@ Available Sections:
   vscode_extensions - VS Code extensions
   git_config        - Git user configuration
   shell_config      - Shell configuration files
+
+Available Groups:
+  version_managers  - nvm, pyenv, bun, mise, rust
+  configs           - symlinks, git_config, shell_config
+  vscode            - vscode_extensions
+  homebrew_all      - homebrew, brew_packages, brew_casks
+  minimal           - symlinks, git_config, shell_config
+  all               - All sections (same as --all flag)
 
 Safety Notes:
   - User data is preserved by default (use --remove-data to remove)
