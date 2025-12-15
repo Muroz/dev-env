@@ -153,6 +153,129 @@ This will:
 
 ---
 
+## Uninstalling
+
+The uninstall system allows you to remove all or specific components installed by the bootstrap script.
+
+### Full Uninstall
+
+Remove everything installed by the bootstrap script:
+
+```bash
+cd ~/dev-env
+./bootstrap/uninstall.sh --all
+```
+
+The script will:
+- Show what will be removed
+- Request confirmation
+- Uninstall selected components
+- Preserve user data by default (Node versions, Python virtualenvs, etc.)
+- Provide option to restore backups
+
+### Selective Uninstall
+
+Remove specific components only:
+
+```bash
+# Remove version managers
+./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
+
+# Switch from nvm/pyenv to mise
+./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
+./bootstrap/install.sh --use-mise
+
+# Remove VS Code extensions
+./bootstrap/uninstall.sh --sections "vscode_extensions"
+```
+
+### Preview Changes (Dry-Run)
+
+See what would be removed without making changes:
+
+```bash
+./bootstrap/uninstall.sh --all --dry-run
+```
+
+### Remove User Data
+
+By default, user data is preserved (Node.js versions, Python virtualenvs, globally installed packages). To remove everything including data:
+
+```bash
+./bootstrap/uninstall.sh --all --remove-data
+```
+
+**Warning**: This will delete:
+- All Node.js versions and npm packages (if using nvm)
+- All Python versions and virtualenvs (if using pyenv)
+- All mise-managed tools (if using mise)
+
+### Check Installation Status
+
+See what's currently installed:
+
+```bash
+./bootstrap/uninstall.sh --status
+
+# Detailed view with package lists
+./bootstrap/uninstall.sh --status --verbose
+```
+
+### Restore Backups
+
+Original config files are backed up before being replaced. To restore them:
+
+```bash
+./bootstrap/uninstall.sh --restore-backups
+```
+
+### Available Sections
+
+You can uninstall any of these sections individually:
+
+- **homebrew** - Homebrew package manager (only removed if safe)
+- **brew_packages** - Homebrew formula packages
+- **brew_casks** - GUI applications (claude-code)
+- **oh_my_zsh** - Oh-My-Zsh framework
+- **nvm** - Node Version Manager (standard mode only)
+- **pyenv** - Python version manager (standard mode only)
+- **bun** - Bun JavaScript runtime (standard mode only)
+- **mise** - Mise unified version manager (mise mode only)
+- **rust** - Rust toolchain
+- **symlinks** - Configuration symlinks (.zshrc, .gitconfig, .gitignore_global)
+- **vscode_extensions** - VS Code extensions
+- **git_config** - Git user configuration
+- **shell_config** - Local shell configuration (~/.zshrc.local)
+
+### Safety Features
+
+The uninstall system includes multiple safety mechanisms:
+
+1. **Data Preservation**: User data kept by default (use `--remove-data` to remove)
+2. **Homebrew Protection**: Only removed if no other packages depend on it
+3. **Confirmation Prompts**: Interactive confirmation before removing sections
+4. **Dry-Run Mode**: Preview changes before applying them
+5. **Backup Restoration**: Restore original config files from backups
+6. **State Tracking**: Knows what was installed and in which mode
+
+### Command Reference
+
+```bash
+# Show all options
+./bootstrap/uninstall.sh --help
+
+# List available sections
+./bootstrap/uninstall.sh --list-sections
+
+# Uninstall without confirmations (dangerous!)
+./bootstrap/uninstall.sh --all --force
+
+# Verbose output
+./bootstrap/uninstall.sh --all --verbose
+```
+
+---
+
 ## Detailed Configuration
 
 ### Bootstrap

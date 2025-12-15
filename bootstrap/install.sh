@@ -55,6 +55,11 @@
 set -o pipefail  # Catch errors in pipes
 # Note: Not using 'set -e' to allow graceful handling of individual failures
 
+# Source state tracking library
+if [ -f "$SCRIPT_DIR/lib/state.sh" ]; then
+    source "$SCRIPT_DIR/lib/state.sh"
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -877,30 +882,137 @@ main() {
     check_macos
     check_dependencies
 
+    # Initialize state tracking
+    if command -v init_state_file &>/dev/null; then
+        init_state_file
+        local mode="standard"
+        [ "$USE_MISE" = true ] && mode="mise"
+        record_installation_start "$mode"
+    fi
+
     # Run installation steps
-    install_homebrew
-    install_brew_packages
-    install_brew_casks
-    install_oh_my_zsh
+    if install_homebrew; then
+        command -v record_section_installed &>/dev/null && \
+            record_section_installed "homebrew" "{\"path\": \"$(brew --prefix 2>/dev/null || echo '')\"}"
+    fi
+
+    if install_brew_packages; then
+        # Record installed packages
+        if command -v record_section_installed &>/dev/null; then
+            local packages="[]"
+            if command -v jq &>/dev/null; then
+                packages=$(brew leaves 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            fi
+            record_section_installed "brew_packages" "{\"packages\": $packages}"
+        fi
+    fi
+
+    if install_brew_casks; then
+        # Record installed casks
+        if command -v record_section_installed &>/dev/null; then
+            local casks="[]"
+            if command -v jq &>/dev/null; then
+                casks=$(brew list --cask 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            fi
+            record_section_installed "brew_casks" "{\"casks\": $casks}"
+        fi
+    fi
+
+    if install_oh_my_zsh; then
+        command -v record_section_installed &>/dev/null && \
+            record_section_installed "oh_my_zsh" "{}"
+    fi
 
     # Version management: either mise or individual tools
     if [ "$USE_MISE" = true ]; then
         # mise is already installed via brew packages
         # Now configure it and install tools
-        setup_mise_config
+        if setup_mise_config; then
+            if command -v record_section_installed &>/dev/null; then
+                local tools="[]"
+                if command -v jq &>/dev/null; then
+                    tools=$(mise list 2>/dev/null | awk '{print $1"@"$2}' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+                fi
+                record_section_installed "mise" "{\"tools\": $tools}"
+            fi
+        fi
+
+        # Record skipped sections
+        command -v record_section_skipped &>/dev/null && record_section_skipped "nvm" "using_mise"
+        command -v record_section_skipped &>/dev/null && record_section_skipped "pyenv" "using_mise"
+        command -v record_section_skipped &>/dev/null && record_section_skipped "bun" "using_mise"
     else
         # Install individual version managers
-        install_nvm
-        install_pyenv
-        install_bun
+        if install_nvm; then
+            command -v record_section_installed &>/dev/null && \
+                record_section_installed "nvm" "{}"
+        fi
+
+        if install_pyenv; then
+            command -v record_section_installed &>/dev/null && \
+                record_section_installed "pyenv" "{}"
+        fi
+
+        if install_bun; then
+            command -v record_section_installed &>/dev/null && \
+                record_section_installed "bun" "{}"
+        fi
+
+        # Record skipped mise
+        command -v record_section_skipped &>/dev/null && record_section_skipped "mise" "using_standard_mode"
     fi
 
-    install_rust
-    install_conda
-    create_symlinks
-    install_vscode_extensions
-    configure_git
-    final_setup
+    if install_rust; then
+        command -v record_section_installed &>/dev/null && \
+            record_section_installed "rust" "{}"
+    fi
+
+    install_conda  # Conda is optional, don't track
+
+    if create_symlinks; then
+        # Record symlinks and backup location
+        if command -v record_section_installed &>/dev/null; then
+            local links="{}"
+            if command -v jq &>/dev/null; then
+                links=$(cat <<EOF
+{
+  ".zshrc": "$(readlink "$HOME/.zshrc" 2>/dev/null || echo '')",
+  ".gitconfig": "$(readlink "$HOME/.gitconfig" 2>/dev/null || echo '')",
+  ".gitignore_global": "$(readlink "$HOME/.gitignore_global" 2>/dev/null || echo '')"
+}
+EOF
+)
+            fi
+
+            local backup_dir=$(ls -1d "$HOME/.dotfiles-backup-"* 2>/dev/null | tail -1)
+            if [ -n "$backup_dir" ]; then
+                record_section_installed "symlinks" "{\"links\": $links, \"backup_dir\": \"$backup_dir\"}"
+                record_backup "$backup_dir"
+            else
+                record_section_installed "symlinks" "{\"links\": $links}"
+            fi
+        fi
+    fi
+
+    if install_vscode_extensions; then
+        if command -v record_section_installed &>/dev/null; then
+            local count=$(code --list-extensions 2>/dev/null | wc -l | xargs)
+            record_section_installed "vscode_extensions" "{\"count\": $count}"
+        fi
+    fi
+
+    if configure_git; then
+        if command -v record_section_installed &>/dev/null; then
+            local user_name=$(git config --global user.name 2>/dev/null || echo '')
+            local user_email=$(git config --global user.email 2>/dev/null || echo '')
+            record_section_installed "git_config" "{\"user_name\": \"$user_name\", \"user_email\": \"$user_email\"}"
+        fi
+    fi
+
+    if final_setup; then
+        command -v record_section_installed &>/dev/null && \
+            record_section_installed "shell_config" "{}"
+    fi
 
     echo ""
     echo "================================================================"
