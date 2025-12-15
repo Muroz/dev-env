@@ -388,6 +388,8 @@ execute_uninstall() {
     # Execute uninstall handlers
     local success_count=0
     local fail_count=0
+    local -a successful_sections=()
+    local -a failed_sections=()
 
     for section in "${sections_to_uninstall[@]}"; do
         echo "----------------------------------------------------------------"
@@ -400,13 +402,16 @@ execute_uninstall() {
         if command -v "$handler" &>/dev/null; then
             if $handler; then
                 ((success_count++))
+                successful_sections+=("$section")
             else
                 ((fail_count++))
+                failed_sections+=("$section")
                 error "Failed to uninstall: $section"
             fi
         else
             warning "No uninstall handler found for: $section"
             ((fail_count++))
+            failed_sections+=("$section")
         fi
 
         echo ""
@@ -414,17 +419,45 @@ execute_uninstall() {
 
     # Summary
     echo "================================================================"
-    echo "  Summary"
+    echo "  Uninstall Summary"
     echo "================================================================"
     echo ""
 
     if [ "$DRY_RUN" = true ]; then
         info "Dry run complete - no changes made"
+        echo ""
+        info "The following sections would be affected:"
+        echo ""
+        if [ ${#successful_sections[@]} -gt 0 ]; then
+            echo "Would uninstall ${#successful_sections[@]} section(s):"
+            for section in "${successful_sections[@]}"; do
+                echo "  ○ $section"
+            done
+        fi
     else
-        success "Successfully uninstalled: $success_count section(s)"
+        # Show successful uninstalls
+        if [ ${#successful_sections[@]} -gt 0 ]; then
+            success "Successfully uninstalled ${#successful_sections[@]} section(s):"
+            for section in "${successful_sections[@]}"; do
+                echo "  ✓ $section"
+            done
+            echo ""
+        fi
 
-        if [ $fail_count -gt 0 ]; then
-            warning "Failed to uninstall: $fail_count section(s)"
+        # Show failures if any
+        if [ ${#failed_sections[@]} -gt 0 ]; then
+            warning "Failed to uninstall ${#failed_sections[@]} section(s):"
+            for section in "${failed_sections[@]}"; do
+                echo "  ✗ $section"
+            done
+            echo ""
+        fi
+
+        # Overall result
+        if [ $fail_count -eq 0 ]; then
+            success "Uninstall completed successfully!"
+        else
+            warning "Uninstall completed with ${#failed_sections[@]} error(s)"
         fi
 
         echo ""

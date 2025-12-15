@@ -121,6 +121,10 @@ dev-env/
    - Install all required tools (conditional based on mode)
    - Create automatic backups of existing configs
    - Report progress and any errors
+   - Display a detailed summary at completion showing:
+     - ✓ Successfully installed sections
+     - ○ Skipped sections (when using --use-mise or --dry-run)
+     - ✗ Failed sections (if any errors occurred)
    - Provide next steps at completion
 
 6. **Review local customizations** (optional):
@@ -171,6 +175,10 @@ The script will:
 - Request confirmation
 - Uninstall selected components
 - Preserve user data by default (Node versions, Python virtualenvs, etc.)
+- Display a detailed summary showing:
+  - ✓ Successfully uninstalled sections
+  - ✗ Failed sections (if any errors occurred)
+  - ○ Sections that would be affected (in dry-run mode)
 - Provide option to restore backups
 
 ### Selective Uninstall

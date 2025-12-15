@@ -890,13 +890,22 @@ main() {
         record_installation_start "$mode"
     fi
 
+    # Track installation results
+    local -a SUCCESSFUL_SECTIONS=()
+    local -a FAILED_SECTIONS=()
+    local -a SKIPPED_SECTIONS=()
+
     # Run installation steps
     if install_homebrew; then
+        SUCCESSFUL_SECTIONS+=("homebrew")
         command -v record_section_installed &>/dev/null && \
             record_section_installed "homebrew" "{\"path\": \"$(brew --prefix 2>/dev/null || echo '')\"}"
+    else
+        FAILED_SECTIONS+=("homebrew")
     fi
 
     if install_brew_packages; then
+        SUCCESSFUL_SECTIONS+=("brew_packages")
         # Record installed packages
         if command -v record_section_installed &>/dev/null; then
             local packages="[]"
@@ -905,9 +914,12 @@ main() {
             fi
             record_section_installed "brew_packages" "{\"packages\": $packages}"
         fi
+    else
+        FAILED_SECTIONS+=("brew_packages")
     fi
 
     if install_brew_casks; then
+        SUCCESSFUL_SECTIONS+=("brew_casks")
         # Record installed casks
         if command -v record_section_installed &>/dev/null; then
             local casks="[]"
@@ -916,11 +928,16 @@ main() {
             fi
             record_section_installed "brew_casks" "{\"casks\": $casks}"
         fi
+    else
+        FAILED_SECTIONS+=("brew_casks")
     fi
 
     if install_oh_my_zsh; then
+        SUCCESSFUL_SECTIONS+=("oh_my_zsh")
         command -v record_section_installed &>/dev/null && \
             record_section_installed "oh_my_zsh" "{}"
+    else
+        FAILED_SECTIONS+=("oh_my_zsh")
     fi
 
     # Version management: either mise or individual tools
@@ -928,6 +945,7 @@ main() {
         # mise is already installed via brew packages
         # Now configure it and install tools
         if setup_mise_config; then
+            SUCCESSFUL_SECTIONS+=("mise")
             if command -v record_section_installed &>/dev/null; then
                 local tools="[]"
                 if command -v jq &>/dev/null; then
@@ -935,41 +953,58 @@ main() {
                 fi
                 record_section_installed "mise" "{\"tools\": $tools}"
             fi
+        else
+            FAILED_SECTIONS+=("mise")
         fi
 
         # Record skipped sections
+        SKIPPED_SECTIONS+=("nvm" "pyenv" "bun")
         command -v record_section_skipped &>/dev/null && record_section_skipped "nvm" "using_mise"
         command -v record_section_skipped &>/dev/null && record_section_skipped "pyenv" "using_mise"
         command -v record_section_skipped &>/dev/null && record_section_skipped "bun" "using_mise"
     else
         # Install individual version managers
         if install_nvm; then
+            SUCCESSFUL_SECTIONS+=("nvm")
             command -v record_section_installed &>/dev/null && \
                 record_section_installed "nvm" "{}"
+        else
+            FAILED_SECTIONS+=("nvm")
         fi
 
         if install_pyenv; then
+            SUCCESSFUL_SECTIONS+=("pyenv")
             command -v record_section_installed &>/dev/null && \
                 record_section_installed "pyenv" "{}"
+        else
+            FAILED_SECTIONS+=("pyenv")
         fi
 
         if install_bun; then
+            SUCCESSFUL_SECTIONS+=("bun")
             command -v record_section_installed &>/dev/null && \
                 record_section_installed "bun" "{}"
+        else
+            FAILED_SECTIONS+=("bun")
         fi
 
         # Record skipped mise
+        SKIPPED_SECTIONS+=("mise")
         command -v record_section_skipped &>/dev/null && record_section_skipped "mise" "using_standard_mode"
     fi
 
     if install_rust; then
+        SUCCESSFUL_SECTIONS+=("rust")
         command -v record_section_installed &>/dev/null && \
             record_section_installed "rust" "{}"
+    else
+        FAILED_SECTIONS+=("rust")
     fi
 
     install_conda  # Conda is optional, don't track
 
     if create_symlinks; then
+        SUCCESSFUL_SECTIONS+=("symlinks")
         # Record symlinks and backup location
         if command -v record_section_installed &>/dev/null; then
             local links="{}"
@@ -992,33 +1027,85 @@ EOF
                 record_section_installed "symlinks" "{\"links\": $links}"
             fi
         fi
+    else
+        FAILED_SECTIONS+=("symlinks")
     fi
 
     if install_vscode_extensions; then
+        SUCCESSFUL_SECTIONS+=("vscode_extensions")
         if command -v record_section_installed &>/dev/null; then
             local count=$(code --list-extensions 2>/dev/null | wc -l | xargs)
             record_section_installed "vscode_extensions" "{\"count\": $count}"
         fi
+    else
+        FAILED_SECTIONS+=("vscode_extensions")
     fi
 
     if configure_git; then
+        SUCCESSFUL_SECTIONS+=("git_config")
         if command -v record_section_installed &>/dev/null; then
             local user_name=$(git config --global user.name 2>/dev/null || echo '')
             local user_email=$(git config --global user.email 2>/dev/null || echo '')
             record_section_installed "git_config" "{\"user_name\": \"$user_name\", \"user_email\": \"$user_email\"}"
         fi
+    else
+        FAILED_SECTIONS+=("git_config")
     fi
 
     if final_setup; then
+        SUCCESSFUL_SECTIONS+=("shell_config")
         command -v record_section_installed &>/dev/null && \
             record_section_installed "shell_config" "{}"
+    else
+        FAILED_SECTIONS+=("shell_config")
+    fi
+
+    echo ""
+    echo "================================================================"
+    echo "  Installation Summary"
+    echo "================================================================"
+    echo ""
+
+    # Display summary
+    if [ ${#SUCCESSFUL_SECTIONS[@]} -gt 0 ]; then
+        success "Successfully installed ${#SUCCESSFUL_SECTIONS[@]} section(s):"
+        for section in "${SUCCESSFUL_SECTIONS[@]}"; do
+            echo "  ✓ $section"
+        done
+        echo ""
+    fi
+
+    if [ ${#SKIPPED_SECTIONS[@]} -gt 0 ]; then
+        info "Skipped ${#SKIPPED_SECTIONS[@]} section(s):"
+        for section in "${SKIPPED_SECTIONS[@]}"; do
+            echo "  - $section"
+        done
+        echo ""
+    fi
+
+    if [ ${#FAILED_SECTIONS[@]} -gt 0 ]; then
+        warning "Failed to install ${#FAILED_SECTIONS[@]} section(s):"
+        for section in "${FAILED_SECTIONS[@]}"; do
+            echo "  ✗ $section"
+        done
+        echo ""
+    fi
+
+    # Overall result
+    if [ ${#FAILED_SECTIONS[@]} -eq 0 ]; then
+        success "Installation completed successfully!"
+    else
+        warning "Installation completed with ${#FAILED_SECTIONS[@]} error(s)"
+        echo ""
+        info "You can try to fix the issues and re-run the installer"
+        info "The installer is idempotent - it's safe to run multiple times"
     fi
 
     echo ""
     echo "================================================================"
 
     # Exit with error code if there were issues
-    if [ $ERROR_COUNT -gt 0 ]; then
+    if [ $ERROR_COUNT -gt 0 ] || [ ${#FAILED_SECTIONS[@]} -gt 0 ]; then
         exit 1
     fi
 }
