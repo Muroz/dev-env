@@ -452,6 +452,14 @@ setup_mise_config() {
     ln -sf "$config_file" "$global_config"
     success "Symlinked mise config: $global_config → $config_file"
 
+    # Trust the config file (required by mise for security)
+    info "Trusting mise config file..."
+    if mise trust "$REPO_ROOT"; then
+        success "mise config trusted"
+    else
+        warning "Failed to trust mise config - you may need to run: mise trust $REPO_ROOT"
+    fi
+
     # Activate mise for current session
     eval "$(mise activate bash)"
 
@@ -674,6 +682,19 @@ install_vscode_extensions() {
         return 0
     fi
 
+    # Check if VS Code is currently running
+    if pgrep -x "Code" >/dev/null 2>&1 || pgrep -x "Visual Studio Code" >/dev/null 2>&1; then
+        warning "VS Code is currently running!"
+        warning "Installing extensions while VS Code is running may cause it to crash or behave unexpectedly."
+        echo ""
+        if [ "$DRY_RUN" = false ]; then
+            echo "Please close VS Code and press Enter to continue (or Ctrl+C to cancel)..."
+            read -r
+        else
+            info "[DRY RUN] Would wait for user to close VS Code"
+        fi
+    fi
+
     info "Installing VS Code extensions..."
 
     if [ ! -f "$REPO_ROOT/editors/vscode/extensions.txt" ]; then
@@ -684,6 +705,7 @@ install_vscode_extensions() {
     local ext_count=0
     local installed_count=0
     local failed_extensions=()
+    local new_installs=0
 
     while IFS= read -r extension; do
         # Skip empty lines and comments
@@ -697,8 +719,11 @@ install_vscode_extensions() {
         else
             if [ "$DRY_RUN" = false ]; then
                 info "  Installing $extension..."
-                if code --install-extension "$extension" --force &>/dev/null; then
+                if code --install-extension "$extension" --force 2>&1 | grep -v "Installing extensions..."; then
                     ((installed_count++))
+                    ((new_installs++))
+                    # Small delay to avoid overwhelming VS Code
+                    sleep 0.5
                 else
                     warning "Failed to install $extension"
                     failed_extensions+=("$extension")
@@ -713,18 +738,42 @@ install_vscode_extensions() {
         warning "Failed to install extensions: ${failed_extensions[*]}"
     fi
 
-    success "VS Code extensions: $installed_count/$ext_count installed"
+    if [ "$DRY_RUN" = false ] && [ $new_installs -gt 0 ]; then
+        success "VS Code extensions: $installed_count/$ext_count ready ($new_installs newly installed)"
+        echo ""
+        warning "IMPORTANT: $new_installs new extension(s) were installed."
+        warning "VS Code may reload or restart when you next open it."
+        warning "This is normal behavior and not a crash."
+    else
+        success "VS Code extensions: $installed_count/$ext_count installed"
+    fi
 
-    # Copy VS Code settings
+    # Copy VS Code settings (with backup)
     local vscode_user_dir="$HOME/Library/Application Support/Code/User"
     if [ -d "$vscode_user_dir" ]; then
         if [ "$DRY_RUN" = false ]; then
             info "Copying VS Code settings..."
+
+            # Backup existing settings
+            local backup_dir="$HOME/.vscode-settings-backup-$(date +%Y%m%d_%H%M%S)"
+            mkdir -p "$backup_dir"
+
+            if [ -f "$vscode_user_dir/settings.json" ]; then
+                cp "$vscode_user_dir/settings.json" "$backup_dir/settings.json"
+                info "Backed up existing settings.json to $backup_dir"
+            fi
+
+            if [ -f "$vscode_user_dir/keybindings.json" ]; then
+                cp "$vscode_user_dir/keybindings.json" "$backup_dir/keybindings.json"
+                info "Backed up existing keybindings.json to $backup_dir"
+            fi
+
+            # Copy new settings
             cp "$REPO_ROOT/editors/vscode/settings.json" "$vscode_user_dir/settings.json"
             cp "$REPO_ROOT/editors/vscode/keybindings.json" "$vscode_user_dir/keybindings.json"
             success "VS Code settings copied"
         else
-            info "[DRY RUN] Would copy VS Code settings"
+            info "[DRY RUN] Would backup and copy VS Code settings"
         fi
     else
         warning "VS Code user directory not found. Settings not copied."
@@ -792,22 +841,12 @@ EOF
             echo "[ -f ~/.zshrc.local ] && source ~/.zshrc.local" >> "$HOME/.zshrc"
         fi
 
-        # If using mise, activate it in zshrc
-        if [ "$USE_MISE" = true ] && [ -f "$HOME/.zshrc" ]; then
-            if ! grep -q "mise activate" "$HOME/.zshrc"; then
-                info "Activating mise in shell configuration..."
-                # Comment out individual version managers
-                sed -i.bak 's/^export NVM_DIR=/# export NVM_DIR=/' "$HOME/.zshrc" 2>/dev/null || true
-                sed -i.bak 's/^eval "$(pyenv init/# eval "$(pyenv init/' "$HOME/.zshrc" 2>/dev/null || true
-
-                # Uncomment mise section
-                sed -i.bak 's/^# if command -v mise/if command -v mise/' "$HOME/.zshrc" 2>/dev/null || true
-                sed -i.bak 's/^#   eval "$(mise activate/  eval "$(mise activate/' "$HOME/.zshrc" 2>/dev/null || true
-                sed -i.bak 's/^# fi  # mise/fi  # mise/' "$HOME/.zshrc" 2>/dev/null || true
-
-                rm -f "$HOME/.zshrc.bak"
-                success "mise activated in shell configuration"
-            fi
+        # Shell configuration is ready - both mise and traditional version managers
+        # will work automatically based on conditional logic in zshrc
+        if [ "$USE_MISE" = true ]; then
+            info "mise is configured and will be used for version management"
+        else
+            info "Traditional version managers (nvm, pyenv, bun) are configured"
         fi
     else
         info "[DRY RUN] Would create $local_zshrc"
@@ -891,21 +930,58 @@ main() {
     fi
 
     # Track installation results
-    local -a SUCCESSFUL_SECTIONS=()
+    local -a NEWLY_INSTALLED_SECTIONS=()
+    local -a ALREADY_PRESENT_SECTIONS=()
     local -a FAILED_SECTIONS=()
     local -a SKIPPED_SECTIONS=()
 
+    # Pre-check: What's already installed?
+    local -A PRECHECK_STATUS=(
+        [homebrew]=$(command_exists brew && echo "present" || echo "absent")
+        [brew_packages]="check_later"  # Too complex for pre-check
+        [brew_casks]="check_later"
+        [oh_my_zsh]=$([ -d "$HOME/.oh-my-zsh" ] && echo "present" || echo "absent")
+        [mise]=$(command_exists mise && echo "present" || echo "absent")
+        [nvm]=$([ -d "$HOME/.nvm" ] && echo "present" || echo "absent")
+        [pyenv]=$(command_exists pyenv && echo "present" || echo "absent")
+        [bun]=$(command_exists bun && echo "present" || echo "absent")
+        [rust]=$(command_exists cargo && echo "present" || echo "absent")
+        [symlinks]=$([ -L "$HOME/.zshrc" ] && echo "present" || echo "absent")
+        [vscode_extensions]="check_later"
+        [git_config]="check_later"
+        [shell_config]=$([ -f "$HOME/.zshrc.local" ] && echo "present" || echo "absent")
+    )
+
+    # Helper function to track section status
+    track_section() {
+        local section_name="$1"
+        local success="$2"  # true/false
+
+        if [ "$success" = "true" ]; then
+            if [ "${PRECHECK_STATUS[$section_name]}" = "present" ]; then
+                ALREADY_PRESENT_SECTIONS+=("$section_name")
+            elif [ "${PRECHECK_STATUS[$section_name]}" = "check_later" ]; then
+                # For complex sections, default to already_present if DRY_RUN or if no errors
+                ALREADY_PRESENT_SECTIONS+=("$section_name")
+            else
+                NEWLY_INSTALLED_SECTIONS+=("$section_name")
+            fi
+        else
+            FAILED_SECTIONS+=("$section_name")
+        fi
+    }
+
     # Run installation steps
     if install_homebrew; then
-        SUCCESSFUL_SECTIONS+=("homebrew")
+        track_section "homebrew" "true"
         command -v record_section_installed &>/dev/null && \
             record_section_installed "homebrew" "{\"path\": \"$(brew --prefix 2>/dev/null || echo '')\"}"
     else
-        FAILED_SECTIONS+=("homebrew")
+        track_section "homebrew" "false"
     fi
 
     if install_brew_packages; then
-        SUCCESSFUL_SECTIONS+=("brew_packages")
+        track_section "brew_packages" "true"
         # Record installed packages
         if command -v record_section_installed &>/dev/null; then
             local packages="[]"
@@ -915,11 +991,11 @@ main() {
             record_section_installed "brew_packages" "{\"packages\": $packages}"
         fi
     else
-        FAILED_SECTIONS+=("brew_packages")
+        track_section "brew_packages" "false"
     fi
 
     if install_brew_casks; then
-        SUCCESSFUL_SECTIONS+=("brew_casks")
+        track_section "brew_casks" "true"
         # Record installed casks
         if command -v record_section_installed &>/dev/null; then
             local casks="[]"
@@ -933,7 +1009,7 @@ main() {
     fi
 
     if install_oh_my_zsh; then
-        SUCCESSFUL_SECTIONS+=("oh_my_zsh")
+        track_section "oh_my_zsh" "true"
         command -v record_section_installed &>/dev/null && \
             record_section_installed "oh_my_zsh" "{}"
     else
@@ -945,7 +1021,7 @@ main() {
         # mise is already installed via brew packages
         # Now configure it and install tools
         if setup_mise_config; then
-            SUCCESSFUL_SECTIONS+=("mise")
+            track_section "mise" "true"
             if command -v record_section_installed &>/dev/null; then
                 local tools="[]"
                 if command -v jq &>/dev/null; then
@@ -965,7 +1041,7 @@ main() {
     else
         # Install individual version managers
         if install_nvm; then
-            SUCCESSFUL_SECTIONS+=("nvm")
+            track_section "nvm" "true"
             command -v record_section_installed &>/dev/null && \
                 record_section_installed "nvm" "{}"
         else
@@ -973,7 +1049,7 @@ main() {
         fi
 
         if install_pyenv; then
-            SUCCESSFUL_SECTIONS+=("pyenv")
+            track_section "pyenv" "true"
             command -v record_section_installed &>/dev/null && \
                 record_section_installed "pyenv" "{}"
         else
@@ -981,7 +1057,7 @@ main() {
         fi
 
         if install_bun; then
-            SUCCESSFUL_SECTIONS+=("bun")
+            track_section "bun" "true"
             command -v record_section_installed &>/dev/null && \
                 record_section_installed "bun" "{}"
         else
@@ -994,7 +1070,7 @@ main() {
     fi
 
     if install_rust; then
-        SUCCESSFUL_SECTIONS+=("rust")
+        track_section "rust" "true"
         command -v record_section_installed &>/dev/null && \
             record_section_installed "rust" "{}"
     else
@@ -1004,7 +1080,7 @@ main() {
     install_conda  # Conda is optional, don't track
 
     if create_symlinks; then
-        SUCCESSFUL_SECTIONS+=("symlinks")
+        track_section "symlinks" "true"
         # Record symlinks and backup location
         if command -v record_section_installed &>/dev/null; then
             local links="{}"
@@ -1032,7 +1108,7 @@ EOF
     fi
 
     if install_vscode_extensions; then
-        SUCCESSFUL_SECTIONS+=("vscode_extensions")
+        track_section "vscode_extensions" "true"
         if command -v record_section_installed &>/dev/null; then
             local count=$(code --list-extensions 2>/dev/null | wc -l | xargs)
             record_section_installed "vscode_extensions" "{\"count\": $count}"
@@ -1042,7 +1118,7 @@ EOF
     fi
 
     if configure_git; then
-        SUCCESSFUL_SECTIONS+=("git_config")
+        track_section "git_config" "true"
         if command -v record_section_installed &>/dev/null; then
             local user_name=$(git config --global user.name 2>/dev/null || echo '')
             local user_email=$(git config --global user.email 2>/dev/null || echo '')
@@ -1053,7 +1129,7 @@ EOF
     fi
 
     if final_setup; then
-        SUCCESSFUL_SECTIONS+=("shell_config")
+        track_section "shell_config" "true"
         command -v record_section_installed &>/dev/null && \
             record_section_installed "shell_config" "{}"
     else
@@ -1062,17 +1138,37 @@ EOF
 
     echo ""
     echo "================================================================"
-    echo "  Installation Summary"
+    if [ "$DRY_RUN" = true ]; then
+        echo "  Dry Run Summary (No Changes Made)"
+    else
+        echo "  Installation Summary"
+    fi
     echo "================================================================"
     echo ""
 
     # Display summary
-    if [ ${#SUCCESSFUL_SECTIONS[@]} -gt 0 ]; then
-        success "Successfully installed ${#SUCCESSFUL_SECTIONS[@]} section(s):"
-        for section in "${SUCCESSFUL_SECTIONS[@]}"; do
+    local total_successful=$((${#NEWLY_INSTALLED_SECTIONS[@]} + ${#ALREADY_PRESENT_SECTIONS[@]}))
+
+    if [ ${#NEWLY_INSTALLED_SECTIONS[@]} -gt 0 ]; then
+        if [ "$DRY_RUN" = true ]; then
+            success "Will install ${#NEWLY_INSTALLED_SECTIONS[@]} section(s):"
+        else
+            success "Newly installed ${#NEWLY_INSTALLED_SECTIONS[@]} section(s):"
+        fi
+        for section in "${NEWLY_INSTALLED_SECTIONS[@]}"; do
             echo "  ✓ $section"
         done
         echo ""
+    fi
+
+    if [ ${#ALREADY_PRESENT_SECTIONS[@]} -gt 0 ]; then
+        if [ "$DRY_RUN" = false ]; then
+            info "Already present ${#ALREADY_PRESENT_SECTIONS[@]} section(s):"
+            for section in "${ALREADY_PRESENT_SECTIONS[@]}"; do
+                echo "  ✓ $section"
+            done
+            echo ""
+        fi
     fi
 
     if [ ${#SKIPPED_SECTIONS[@]} -gt 0 ]; then
@@ -1084,7 +1180,7 @@ EOF
     fi
 
     if [ ${#FAILED_SECTIONS[@]} -gt 0 ]; then
-        warning "Failed to install ${#FAILED_SECTIONS[@]} section(s):"
+        warning "Failed ${#FAILED_SECTIONS[@]} section(s):"
         for section in "${FAILED_SECTIONS[@]}"; do
             echo "  ✗ $section"
         done
@@ -1093,12 +1189,29 @@ EOF
 
     # Overall result
     if [ ${#FAILED_SECTIONS[@]} -eq 0 ]; then
-        success "Installation completed successfully!"
+        if [ "$DRY_RUN" = true ]; then
+            success "Dry run completed successfully - no changes were made"
+            echo ""
+            info "To perform the actual installation, run without --dry-run:"
+            if [ "$USE_MISE" = true ]; then
+                info "  ./bootstrap/install.sh --use-mise"
+            else
+                info "  ./bootstrap/install.sh"
+            fi
+        else
+            success "Installation completed successfully!"
+        fi
     else
-        warning "Installation completed with ${#FAILED_SECTIONS[@]} error(s)"
-        echo ""
-        info "You can try to fix the issues and re-run the installer"
-        info "The installer is idempotent - it's safe to run multiple times"
+        if [ "$DRY_RUN" = true ]; then
+            warning "Dry run completed with ${#FAILED_SECTIONS[@]} issue(s)"
+            echo ""
+            info "These issues would need to be resolved before installation"
+        else
+            warning "Installation completed with ${#FAILED_SECTIONS[@]} error(s)"
+            echo ""
+            info "You can try to fix the issues and re-run the installer"
+            info "The installer is idempotent - it's safe to run multiple times"
+        fi
     fi
 
     echo ""

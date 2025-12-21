@@ -23,13 +23,13 @@
 
 [tools]
 # Node.js version (currently managed by nvm)
-# node = "22.13.1"
+node = "22.13.1"
 
 # Python version (currently managed by pyenv)
-# python = "3.13"
+python = "3.13"
 
 # Bun version (currently standalone install)
-# bun = "1.0.0"
+bun = "1.0.0"
 
 # Rust (optional - usually managed by rustup)
 # rust = "1.91.1"
