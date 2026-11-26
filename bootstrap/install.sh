@@ -91,6 +91,10 @@ DRY_RUN=false
 SKIP_BACKUPS=false
 USE_MISE=false
 ERROR_COUNT=0
+# Counted apart from errors: a warning means an optional tool is absent, not
+# that the install failed, and only errors and failed sections decide the
+# exit status.
+WARNING_COUNT=0
 
 # Parse arguments
 for arg in "$@"; do
@@ -143,7 +147,7 @@ success() {
 
 warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
-    ((ERROR_COUNT++))
+    ((WARNING_COUNT++))
 }
 
 error() {
@@ -912,8 +916,12 @@ final_setup() {
     echo ""
 
     if [ $ERROR_COUNT -gt 0 ]; then
-        warning "Completed with $ERROR_COUNT warnings/errors"
-        info "Review the output above for any issues"
+        echo -e "${RED}[SUMMARY]${NC} $ERROR_COUNT error(s), $WARNING_COUNT warning(s)"
+        info "Review the output above"
+        echo ""
+    elif [ $WARNING_COUNT -gt 0 ]; then
+        echo -e "${YELLOW}[SUMMARY]${NC} completed with $WARNING_COUNT warning(s)"
+        info "Usually an optional tool that is not installed"
         echo ""
     fi
 
