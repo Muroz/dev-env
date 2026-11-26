@@ -36,34 +36,33 @@ plugins=(git)
 # Version Managers & Language Tools
 # ============================================================================
 
-# mise - unified version manager. When it is active it supersedes nvm and
-# pyenv, so those are only loaded if mise is absent.
-if command -v mise >/dev/null 2>&1 && [ -e "$HOME/.config/mise/config.toml" ]; then
+# mise - Node and Bun, from the versions in mise/config.toml.
+#
+# The fallback below matters. mise replaced nvm and a standalone bun, but a
+# machine part-way through that migration, or one where mise has not been
+# installed yet, still needs node. Without this, a fresh login shell has no
+# node and no bun at all. Gate on mise rather than on `command -v node`: a
+# node inherited from a parent shell's PATH would wrongly suppress the
+# fallback, and on stock macOS `command -v python` is always false, which is
+# what made an earlier version of this guard never fire.
+if command -v mise >/dev/null 2>&1; then
     eval "$(mise activate zsh)"
-    MISE_ACTIVE=1
-fi
-
-if [ -z "$MISE_ACTIVE" ]; then
-    # Node.js (nvm)
+else
+    # Node (nvm)
     export NVM_DIR="$HOME/.nvm"
     [ -s "$BREW_PREFIX/opt/nvm/nvm.sh" ] && . "$BREW_PREFIX/opt/nvm/nvm.sh"
-    [ -s "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm" ] && \
-        . "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm"
+    [ -s "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm" ] &&         . "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm"
 
-    # Python (pyenv). --path sets up PATH; the second form installs the shims
-    # that `pyenv shell` and `pyenv local` need.
-    if command -v pyenv >/dev/null 2>&1; then
-        eval "$(pyenv init --path)"
-        eval "$(pyenv init -)"
-    fi
+    # Bun, from its standalone install
+    export BUN_INSTALL="$HOME/.bun"
+    [ -d "$BUN_INSTALL/bin" ] && export PATH="$BUN_INSTALL/bin:$PATH"
+    [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
+
+    # Said once, on stderr, so it does not pollute a piped command's output.
+    print -u2 "dev-env: mise is not installed, using nvm and the standalone bun. Run ./bootstrap/install.sh"
 fi
 
-# Bun
-export BUN_INSTALL="$HOME/.bun"
-[ -d "$BUN_INSTALL/bin" ] && export PATH="$BUN_INSTALL/bin:$PATH"
-[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
-
-# Rust/Cargo
+# Rust/Cargo. rustup manages its own toolchains, not mise.
 [ -d "$HOME/.cargo/bin" ] && export PATH="$HOME/.cargo/bin:$PATH"
 
 # Anaconda/Conda

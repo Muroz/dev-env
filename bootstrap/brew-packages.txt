@@ -6,25 +6,24 @@
 # Use 'brew deps <package>' to see dependencies of a package
 
 # ============================================================================
-# Version Managers (Unified) - Only installed with --use-mise flag
+# Version Management
 # ============================================================================
 
-# mise - Unified version manager for Node, Python, Bun, and more
-# Replaces nvm, pyenv, and standalone bun installations
-# [CONDITIONAL: USE_MISE]
-mise
-
-# ============================================================================
-# Version Managers (Individual) - Skipped when --use-mise is used
-# ============================================================================
-
-# Node Version Manager - manage multiple Node.js versions
-# [CONDITIONAL: !USE_MISE]
-nvm
-
-# Python version manager - manage multiple Python versions
-# [CONDITIONAL: !USE_MISE]
-pyenv
+# mise is NOT installed from Homebrew, which is why it is not listed here.
+#
+# Homebrew publishes no bottle for mise on macOS 14 arm64 — this is a Tier 3
+# configuration, so brew would build it from source, and with it z3, ninja,
+# llvm, libssh2, llhttp, libgit2 and rust. That is an hours-long build that
+# also wants newer Command Line Tools than are installed.
+#
+# install.sh uses mise's own installer instead, which fetches a prebuilt
+# binary, verifies it against a checksum the installer carries, and puts it in
+# ~/.local/bin. shell/zshrc already has that on PATH. mise then updates itself
+# with `mise self-update`, so nothing here needs to track its version.
+#
+# What mise manages: Node and Bun, per mise/config.toml. It replaced nvm and
+# pyenv, and still reads .nvmrc and .python-version in projects that have
+# them. Rust stays with rustup and Python stays with conda.
 
 # ============================================================================
 # Python Tools

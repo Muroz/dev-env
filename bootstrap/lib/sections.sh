@@ -19,13 +19,20 @@
 # 11. vscode_extensions - VS Code extensions
 # 12. git_config - Git user configuration
 # 13. shell_config - Shell configuration files
+# 14. drift_agent - Weekly drift check (launchd agent)
+#
+# nvm, pyenv and bun remain as sections although nothing installs them any
+# more: mise replaced them, and these are how a machine that still has them
+# gets cleaned up.
 #
 # ============================================================================
 
 # Source utils if not already loaded
 if ! command -v info &>/dev/null; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    source "$SCRIPT_DIR/utils.sh"
+    # Its own variable: assigning SCRIPT_DIR here would overwrite the
+    # caller's, which is how install.sh once failed to find its own lib.
+    _SECTIONS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "$_SECTIONS_LIB_DIR/utils.sh"
 fi
 
 # ============================================================================
@@ -47,6 +54,7 @@ SECTION_ORDER=(
     "vscode_extensions"
     "git_config"
     "shell_config"
+    "drift_agent"
 )
 
 # ============================================================================
@@ -70,6 +78,7 @@ get_section_name() {
         vscode_extensions)  echo "VS Code Extensions" ;;
         git_config)         echo "Git User Configuration" ;;
         shell_config)       echo "Shell Configuration Files" ;;
+        drift_agent)        echo "Weekly Drift Check" ;;
         *)                  echo "$section" ;;
     esac
 }
@@ -79,7 +88,7 @@ get_section_description() {
     local section="$1"
     case "$section" in
         homebrew)           echo "Package manager for macOS" ;;
-        brew_packages)      echo "Formula packages (mise OR nvm/pyenv, poetry, tippecanoe, pmtiles)" ;;
+        brew_packages)      echo "Formula packages from bootstrap/brew-packages.txt" ;;
         brew_casks)         echo "GUI applications (claude-code)" ;;
         oh_my_zsh)          echo "Zsh framework with themes and plugins" ;;
         nvm)                echo "Manages multiple Node.js versions" ;;
@@ -91,6 +100,7 @@ get_section_description() {
         vscode_extensions)  echo "30+ VS Code extensions" ;;
         git_config)         echo "Global git user.name and user.email" ;;
         shell_config)       echo "Machine-specific shell configuration (~/.zshrc.local)" ;;
+        drift_agent)        echo "launchd agent that reports drift once a week" ;;
         *)                  echo "" ;;
     esac
 }
@@ -154,7 +164,7 @@ expand_group() {
         vscode)            echo "vscode_extensions" ;;
         homebrew_all)      echo "homebrew,brew_packages,brew_casks" ;;
         minimal)           echo "symlinks,git_config,shell_config" ;;
-        all)               echo "homebrew,brew_packages,brew_casks,oh_my_zsh,nvm,pyenv,bun,mise,rust,symlinks,vscode_extensions,git_config,shell_config" ;;
+        all)               echo "homebrew,brew_packages,brew_casks,oh_my_zsh,nvm,pyenv,bun,mise,rust,symlinks,vscode_extensions,git_config,shell_config,drift_agent" ;;
         *)                 echo "$group" ;;
     esac
 }

@@ -17,7 +17,7 @@
 # 2. Updates Homebrew and its packages
 # 3. Installs anything added to the manifests since last time
 # 4. Updates VS Code extensions and settings
-# 5. Updates version managers for the mode this machine was installed in
+# 5. Updates mise tools, rustup and conda
 # 6. Refreshes symlinks
 #
 # It never upgrades casks. Every tracked app self-updates, and forcing brew to
@@ -62,10 +62,6 @@ run() {
     fi
     "$@"
 }
-
-# Which version managers this machine uses. Read from the state file written
-# by install.sh, so an update never reinstalls the stack the install skipped.
-USE_MISE=$(detect_mise_mode)
 
 # ============================================================================
 # Repository
@@ -150,7 +146,7 @@ update_brew_packages() {
                 warning "Failed to install $package"
             fi
         fi
-    done < <(read_manifest "$manifest" "$USE_MISE")
+    done < <(read_manifest "$manifest")
 
     if [ "$added" -eq 0 ]; then
         success "Brew packages already in sync"
@@ -179,7 +175,7 @@ update_brew_casks() {
                 warning "Failed to install $cask"
             fi
         fi
-    done < <(read_manifest "$manifest" "$USE_MISE")
+    done < <(read_manifest "$manifest")
 
     if [ "$added" -eq 0 ]; then
         success "Cask applications already in sync"
@@ -218,7 +214,7 @@ update_vscode_extensions() {
             info "Installing new extension: $extension"
             run code --install-extension "$extension" --force
         fi
-    done < <(read_manifest "$manifest" "$USE_MISE")
+    done < <(read_manifest "$manifest")
 
     success "VS Code extensions synced"
 }
@@ -260,27 +256,20 @@ update_vscode_settings() {
 # ============================================================================
 
 update_version_managers() {
-    if [ "$USE_MISE" = true ]; then
-        info "This machine uses mise for Node, Python and Bun"
-        update_mise
-    else
-        info "This machine uses nvm, pyenv and standalone bun"
-        update_nvm
-        update_pyenv
-        update_bun
-    fi
-
-    # Both modes
+    update_mise
     update_rust
     update_conda
 }
 
 update_mise() {
     if ! command_exists mise; then
-        warning "mise mode recorded but mise is not installed"
-        info "Run: brew install mise"
+        warning "mise is not installed"
+        info "Run: brew install mise, or ./bootstrap/install.sh"
         return 0
     fi
+
+    # Installed from mise's own installer, not brew, so it updates itself.
+    run mise self-update --yes || warning "Could not self-update mise"
 
     info "Installing tools from mise config..."
     if run mise install; then
@@ -289,42 +278,6 @@ update_mise() {
     else
         warning "Some mise tools failed to install"
     fi
-}
-
-update_nvm() {
-    local nvm_sh
-    nvm_sh="$(brew --prefix 2>/dev/null)/opt/nvm/nvm.sh"
-
-    if [ ! -s "$nvm_sh" ]; then
-        warning "nvm not installed"
-        return 0
-    fi
-
-    export NVM_DIR="$HOME/.nvm"
-    # shellcheck disable=SC1090
-    . "$nvm_sh"
-
-    info "Node version: $(nvm current)"
-    info "Run 'nvm install --lts' to move to the current LTS"
-}
-
-update_pyenv() {
-    if ! command_exists pyenv; then
-        warning "pyenv not installed"
-        return 0
-    fi
-
-    info "Python version: $(pyenv version 2>/dev/null || echo 'not set')"
-    info "Run 'pyenv install <version> && pyenv global <version>' to change it"
-}
-
-update_bun() {
-    if ! command_exists bun; then
-        warning "Bun not installed"
-        return 0
-    fi
-
-    run bun upgrade && success "Bun is at $(bun --version)"
 }
 
 update_rust() {
@@ -373,7 +326,7 @@ refresh_symlinks() {
         run ln -sfn "$src" "$dest"
     done
 
-    if [ "$USE_MISE" = true ] && [ -f "$REPO_ROOT/mise/config.toml" ]; then
+    if [ -f "$REPO_ROOT/mise/config.toml" ]; then
         run mkdir -p "$HOME/.config/mise"
         run ln -sfn "$REPO_ROOT/mise/config.toml" "$HOME/.config/mise/config.toml"
     fi
@@ -404,9 +357,6 @@ main() {
     else
         info "Skipping git pull (--no-pull)"
     fi
-
-    info "Mode: $([ "$USE_MISE" = true ] && echo mise || echo standard)"
-    echo ""
 
     update_homebrew
     update_brew_packages

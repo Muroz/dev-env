@@ -1,36 +1,36 @@
 # Global tool versions, managed by mise.
 #
-# Symlinked to ~/.config/mise/config.toml by `./bootstrap/install.sh --use-mise`.
-# These versions are used exactly as committed — the installer does not rewrite
-# this file, so the repo stays clean and `git pull` in update-tools.sh keeps
-# working.
+# Symlinked to ~/.config/mise/config.toml by ./bootstrap/install.sh. These
+# versions are used exactly as committed — the installer does not rewrite this
+# file, so the checkout stays clean and the `git pull` in update-tools.sh
+# keeps working.
 #
 # Changing a version here and running `mise install` on each laptop is how the
-# two machines stay on the same toolchain.
+# machines stay on the same toolchain. Renovate watches this file and opens a
+# pull request when a tool has a newer release; see renovate.json.
 
 [tools]
-# Node.js. 22 is the line both machines are on today (maintenance LTS).
 node = "22"
-
-# Python. pyenv had no global version set, so this pins what was in use.
-python = "3.12"
-
-# Bun. 1.0.0 was installed and is three years stale; 1.4 is the current line.
 bun = "1.4"
 
 # ============================================================================
+# What is deliberately not here
+# ============================================================================
+# python    conda provides it (/opt/anaconda3), and pyenv was set to `system`
+#           and managing nothing before it was removed. Handing Python to mise
+#           would put a second interpreter ahead of conda's on PATH, and both
+#           tools rewrite PATH when they activate. Not worth the breakage for
+#           a machine whose Python work runs through conda.
+#
+# rust      rustup manages its own toolchains and updates them in place.
+#
+# ============================================================================
 # Upgrade targets
 # ============================================================================
-# Current upstream as of 2026-11. Moving to these is a deliberate choice, not
-# something an install should do behind your back — edit the values above when
-# you want them, then run `mise install` on both laptops.
+# Node 26 is the current LTS line; 22 is in maintenance. Moving is a
+# deliberate edit here followed by `mise install` on both laptops, or just
+# merging the Renovate pull request.
 #
-#   node   = "26"     Node 26 is the active LTS line; 22 is in maintenance
-#   python = "3.14"   3.14 is the current stable series
-#
-# Rust stays with rustup and conda stays with conda in both modes, so neither
-# is listed here.
-
 # ============================================================================
 # Per-project overrides
 # ============================================================================
@@ -40,4 +40,3 @@ bun = "1.4"
 #
 #   [tools]
 #   node = "20.11.0"
-#   python = "3.11"

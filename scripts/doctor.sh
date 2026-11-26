@@ -43,8 +43,6 @@ for arg in "$@"; do
     esac
 done
 
-USE_MISE=$(detect_mise_mode)
-
 DRIFT_COUNT=0
 FIXES=()
 
@@ -113,14 +111,12 @@ check_symlinks() {
         fi
     done
 
-    if [ "$USE_MISE" = true ]; then
-        local mise_cfg="$HOME/.config/mise/config.toml"
-        if [ -L "$mise_cfg" ]; then
-            ok ".config/mise/config.toml → mise/config.toml"
-        else
-            drift ".config/mise/config.toml is not linked to the repo"
-            fix "ln -sfn $REPO_ROOT/mise/config.toml $mise_cfg"
-        fi
+    local mise_cfg="$HOME/.config/mise/config.toml"
+    if [ -L "$mise_cfg" ]; then
+        ok ".config/mise/config.toml → mise/config.toml"
+    else
+        drift ".config/mise/config.toml is not linked to the repo"
+        fix "ln -sfn $REPO_ROOT/mise/config.toml $mise_cfg"
     fi
 }
 
@@ -143,7 +139,7 @@ check_formulas() {
 
     while IFS= read -r package; do
         formula_installed "$package" || missing+=("$package")
-    done < <(read_manifest "$manifest" "$USE_MISE")
+    done < <(read_manifest "$manifest")
 
     if [ ${#missing[@]} -eq 0 ]; then
         ok "all tracked formulas installed"
@@ -157,7 +153,7 @@ check_formulas() {
     local untracked
     untracked=$(comm -23 \
         <(brew leaves | sort) \
-        <(read_manifest "$manifest" "$USE_MISE" | sort))
+        <(read_manifest "$manifest" | sort))
 
     if [ -z "$untracked" ]; then
         ok "no untracked formulas"
@@ -173,39 +169,6 @@ check_formulas() {
 # ============================================================================
 # 3. Cask applications
 # ============================================================================
-
-# What a cask puts on disk, so a hand-installed copy can be told apart from a
-# missing one. Prints one line per app bundle, then "PKG" if the cask installs
-# a pkg rather than an app: --adopt cannot take over a pkg install.
-cask_artifacts() {
-    brew info --cask --json=v2 "$1" 2>/dev/null | python3 -I -c '
-import json, os, sys
-try:
-    cask = json.load(sys.stdin)["casks"][0]
-except Exception:
-    sys.exit(0)
-
-apps, is_pkg = [], False
-for artifact in cask.get("artifacts", []):
-    for app in artifact.get("app", []) or []:
-        if isinstance(app, str):
-            apps.append(app)
-    if artifact.get("pkg"):
-        is_pkg = True
-    # A pkg cask names the app it drops in its uninstall stanza.
-    for stanza in artifact.get("uninstall", []) or []:
-        if not isinstance(stanza, dict):
-            continue
-        for path in stanza.get("delete", []) or []:
-            if isinstance(path, str) and path.endswith(".app"):
-                apps.append(os.path.basename(path))
-
-for app in dict.fromkeys(apps):
-    print(app)
-if is_pkg:
-    print("PKG")
-'
-}
 
 check_casks() {
     section "Cask applications"
@@ -243,7 +206,7 @@ check_casks() {
         else
             missing+=("$cask")
         fi
-    done < <(read_manifest "$manifest" "$USE_MISE")
+    done < <(read_manifest "$manifest")
 
     # An app that is present is not a parity problem, whoever installed it.
     # Only a missing app makes the two machines differ, so that is the only
@@ -265,7 +228,7 @@ check_casks() {
     fi
 
     local untracked
-    untracked=$(brew list --cask 2>/dev/null | comm -23 - <(read_manifest "$manifest" "$USE_MISE" | sort))
+    untracked=$(brew list --cask 2>/dev/null | comm -23 - <(read_manifest "$manifest" | sort))
 
     if [ -n "$untracked" ]; then
         note "brew-managed but not tracked: $(echo "$untracked" | tr '\n' ' ')"
@@ -288,7 +251,7 @@ check_vscode() {
     local manifest="$REPO_ROOT/editors/vscode/extensions.txt"
     local installed tracked
     installed=$(code --list-extensions | tr '[:upper:]' '[:lower:]' | sort)
-    tracked=$(read_manifest "$manifest" "$USE_MISE" | tr '[:upper:]' '[:lower:]' | sort)
+    tracked=$(read_manifest "$manifest" | tr '[:upper:]' '[:lower:]' | sort)
 
     local missing extra
     missing=$(comm -13 <(echo "$installed") <(echo "$tracked"))
@@ -351,21 +314,37 @@ check_versions() {
         fi
     done
 
-    if [ "$USE_MISE" = true ]; then
-        if command_exists mise; then
-            local outdated
-            outdated=$(mise outdated 2>/dev/null | tail -n +2)
-            if [ -z "$outdated" ]; then
-                ok "mise tools match mise/config.toml"
-            else
-                drift "mise tools behind the config:"
-                echo "$outdated" | sed 's/^/       /'
-                fix "mise install"
-            fi
+    if command_exists mise; then
+        local outdated
+        outdated=$(mise outdated 2>/dev/null | tail -n +2)
+        if [ -z "$outdated" ]; then
+            ok "mise tools match mise/config.toml"
         else
-            drift "mise mode recorded but mise is not installed"
-            fix "brew install mise"
+            drift "mise tools behind the config:"
+            echo "$outdated" | sed 's/^/       /'
+            fix "mise install"
         fi
+    else
+        drift "mise is not installed"
+        fix "./bootstrap/install.sh"
+    fi
+
+    # nvm, pyenv and a standalone bun were replaced by mise. Worth removing
+    # once mise is in, because their shims sit on PATH ahead of it and a stale
+    # one then wins silently. Until mise is installed they are what provides
+    # node, so saying "remove these" would be advice to break the shell.
+    local leftover=()
+    command_exists pyenv && leftover+=("pyenv")
+    [ -d "$HOME/.nvm" ] && leftover+=(".nvm directory")
+    [ -d "$HOME/.bun" ] && leftover+=(".bun directory")
+
+    if [ ${#leftover[@]} -eq 0 ]; then
+        ok "no superseded version managers left behind"
+    elif command_exists mise; then
+        drift "superseded by mise but still present: ${leftover[*]}"
+        fix "./bootstrap/uninstall.sh --sections nvm,pyenv,bun"
+    else
+        note "still providing node and bun until mise is installed: ${leftover[*]}"
     fi
 }
 
@@ -473,7 +452,7 @@ check_repo_state() {
 
     local state_file="$HOME/.dev-env/state.json"
     if [ -f "$state_file" ]; then
-        ok "install state recorded (mode: $([ "$USE_MISE" = true ] && echo mise || echo standard))"
+        ok "install state recorded"
     else
         drift "no install state at ~/.dev-env/state.json, so the mode is a guess"
         fix "./bootstrap/install.sh    # records what it installs"
@@ -495,7 +474,6 @@ main() {
     echo "  Dev Environment Doctor"
     echo "================================================================"
     echo "  repo: $REPO_ROOT"
-    echo "  mode: $([ "$USE_MISE" = true ] && echo mise || echo standard)"
 
     check_symlinks
     check_formulas

@@ -10,41 +10,30 @@
 # Options:
 #   --dry-run        Preview changes without making modifications
 #   --skip-backups   Skip creating backups of existing configuration files
-#   --use-mise       Use mise for unified version management (Node, Python, Bun)
 #   --help           Display usage information and available options
 #
 # Examples:
-#   ./install.sh                     # Standard installation (nvm, pyenv, bun)
+#   ./install.sh                     # Set this machine up
 #   ./install.sh --dry-run           # Preview what would be installed
-#   ./install.sh --use-mise          # Install with mise for unified version management
-#   ./install.sh --dry-run --use-mise  # Preview mise installation
 #
 # What this script does:
 # 1. Validates macOS system and required dependencies (curl, git)
 # 2. Installs Homebrew (if not present) for both Intel and Apple Silicon
-# 3. Installs brew packages from brew-packages.txt (conditionally based on --use-mise)
+# 3. Installs brew packages from brew-packages.txt
 # 4. Installs cask applications from cask-apps.txt
 # 5. Installs oh-my-zsh (if not present)
-# 6. Sets up version managers:
-#    - Standard mode: nvm, pyenv, bun, rust, conda
-#    - Mise mode (--use-mise): mise, rust, conda
+# 6. Configures mise from mise/config.toml, plus rustup and conda
 # 7. Creates symlinks for shell and git configurations (with automatic backups)
 # 8. Installs VS Code extensions and copies settings
-# 9. Configures git with environment variables
+# 9. Configures git identity in ~/.gitconfig.local
 # 10. Creates ~/.zshrc.local for machine-specific customizations
+# 11. Installs the pre-commit hook and the weekly drift check
 #
-# Version Management Modes:
-#
-# Standard Mode (default):
-#   - Installs: nvm, pyenv, poetry, tippecanoe, pmtiles
-#   - Skips: mise
-#   - Best for users familiar with traditional version managers
-#
-# Mise Mode (--use-mise):
-#   - Installs: mise, poetry, tippecanoe, pmtiles
-#   - Skips: nvm, pyenv (bun installed via mise)
-#   - Automatically configures mise and installs tools from mise/config.toml
-#   - Best for users wanting simplified, unified tooling
+# Version management:
+#   mise handles Node and Bun, from the versions pinned in mise/config.toml.
+#   Rust stays with rustup, and Python stays with conda. There used to be a
+#   --use-mise flag selecting between mise and nvm/pyenv; the second path is
+#   gone, because one way of setting a machine up is the point of this repo.
 #
 # IMPORTANT: Set these environment variables before running:
 #   export GIT_USER_NAME="Your Name"
@@ -89,7 +78,6 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # Flags
 DRY_RUN=false
 SKIP_BACKUPS=false
-USE_MISE=false
 ERROR_COUNT=0
 # Counted apart from errors: a warning means an optional tool is absent, not
 # that the install failed, and only errors and failed sections decide the
@@ -105,29 +93,22 @@ for arg in "$@"; do
         --skip-backups)
             SKIP_BACKUPS=true
             ;;
-        --use-mise)
-            USE_MISE=true
-            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --dry-run        Preview changes without making modifications"
             echo "  --skip-backups   Skip creating backups of existing configuration files"
-            echo "  --use-mise       Use mise for unified version management (Node, Python, Bun)"
-            echo "                   This will skip installing nvm, pyenv, and standalone bun"
             echo "  --help           Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0                    # Standard installation (nvm, pyenv, bun)"
+            echo "  $0                    # Set this machine up"
             echo "  $0 --dry-run          # Preview what would be installed"
-            echo "  $0 --use-mise         # Install with mise for unified version management"
-            echo "  $0 --dry-run --use-mise  # Preview mise installation"
             exit 0
             ;;
         *)
             echo "Unknown option: $arg"
-            echo "Usage: $0 [--dry-run] [--skip-backups] [--use-mise] [--help]"
+            echo "Usage: $0 [--dry-run] [--skip-backups] [--help]"
             exit 1
             ;;
     esac
@@ -273,20 +254,7 @@ install_brew_packages() {
                 failed_packages+=("$package")
             fi
         fi
-    done < <(read_manifest "$manifest" "$USE_MISE")
-
-    # Report what this mode deliberately left out.
-    local skipped
-    skipped=$(read_manifest_skipped "$manifest" "$USE_MISE")
-    if [ -n "$skipped" ]; then
-        while IFS= read -r package; do
-            if [ "$USE_MISE" = true ]; then
-                info "  ⊘ $package (skipped - using mise instead)"
-            else
-                info "  ⊘ $package (skipped - not using mise)"
-            fi
-        done <<< "$skipped"
-    fi
+    done < <(read_manifest "$manifest")
 
     if [ ${#failed_packages[@]} -ne 0 ]; then
         warning "Failed to install: ${failed_packages[*]}"
@@ -323,13 +291,23 @@ install_brew_casks() {
             continue
         fi
 
+        # Already on disk from a manual download. Adoption needs sudo and
+        # only works while the installed version matches the cask exactly, so
+        # attempting it here would re-download the app and then fail on the
+        # password prompt. The app is present, which is what matters.
+        if cask_app_present "$cask"; then
+            info "  ✓ $cask present (not brew-managed)"
+            ((installed_count++))
+            continue
+        fi
+
         if [ "$DRY_RUN" = true ]; then
             info "[DRY RUN] Would install $cask"
             continue
         fi
 
-        # --adopt takes over an app already sitting in /Applications from a
-        # manual download, instead of refusing to install or overwriting it.
+        # --adopt still goes on the install, for the case where the app does
+        # appear mid-run or the versions happen to line up.
         info "  Installing $cask..."
         if brew install --cask --adopt "$cask"; then
             ((installed_count++))
@@ -337,7 +315,7 @@ install_brew_casks() {
             warning "Failed to install $cask"
             failed_casks+=("$cask")
         fi
-    done < <(read_manifest "$manifest" "$USE_MISE")
+    done < <(read_manifest "$manifest")
 
     if [ ${#failed_casks[@]} -ne 0 ]; then
         warning "Failed to install casks: ${failed_casks[*]}"
@@ -387,6 +365,50 @@ install_oh_my_zsh() {
 # 5. Version Managers & Language Tools
 # ============================================================================
 
+# mise has no Homebrew bottle on macOS 14 arm64, so brew would build it and
+# its LLVM and Rust dependencies from source. Its own installer ships a
+# prebuilt binary, checksum-verified, into ~/.local/bin — the same approach
+# already used here for oh-my-zsh and rustup.
+install_mise() {
+    info "Checking for mise..."
+
+    if command_exists mise; then
+        success "mise already installed ($(mise --version 2>&1 | head -1))"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would install mise from https://mise.run"
+        return 0
+    fi
+
+    local installer="/tmp/mise-install-$$.sh"
+
+    if ! curl -fsSL https://mise.run -o "$installer"; then
+        error "Could not download the mise installer"
+        rm -f "$installer"
+        return 1
+    fi
+
+    # Installs to ~/.local/bin/mise unless MISE_INSTALL_PATH says otherwise.
+    if sh "$installer"; then
+        rm -f "$installer"
+        # Not yet on PATH in this shell: ~/.local/bin is added by zshrc, which
+        # has not been re-sourced.
+        export PATH="$HOME/.local/bin:$PATH"
+        if command_exists mise; then
+            success "mise installed ($(mise --version 2>&1 | head -1))"
+            return 0
+        fi
+        error "mise installer finished but mise is not on PATH"
+        return 1
+    fi
+
+    error "Failed to install mise"
+    rm -f "$installer"
+    return 1
+}
+
 setup_mise_config() {
     # This function is called after mise is installed via brew packages
     # It handles configuration and tool installation
@@ -411,8 +433,8 @@ setup_mise_config() {
 
     # At this point, we're not in dry-run mode, so mise should be installed
     if ! command_exists mise; then
-        error "mise not found - this should have been installed via brew packages"
-        info "Try running: brew install mise"
+        error "mise not found"
+        info "Try running: curl -fsSL https://mise.run | sh"
         return 1
     fi
 
@@ -421,7 +443,7 @@ setup_mise_config() {
     # which then breaks the `git pull` in scripts/update-tools.sh.
     if ! grep -qE '^[a-z]+ = ' "$config_file"; then
         warning "No tool versions set in $config_file"
-        info "Add versions under [tools], then re-run with --use-mise"
+        info "Add versions under [tools], then re-run"
         return 1
     fi
 
@@ -466,80 +488,6 @@ setup_mise_config() {
     fi
 
     return 0
-}
-
-install_nvm() {
-    # Skip if using mise
-    if [ "$USE_MISE" = true ]; then
-        info "Skipping nvm (using mise instead)"
-        return 0
-    fi
-
-    info "Checking for nvm..."
-
-    if [ -d "$HOME/.nvm" ]; then
-        success "nvm already installed"
-    else
-        if [ "$DRY_RUN" = false ]; then
-            info "Creating nvm directory (installed via Homebrew)..."
-            mkdir -p "$HOME/.nvm"
-            success "nvm ready"
-        else
-            info "[DRY RUN] Would create nvm directory"
-        fi
-    fi
-}
-
-install_pyenv() {
-    # Skip if using mise
-    if [ "$USE_MISE" = true ]; then
-        info "Skipping pyenv (using mise instead)"
-        return 0
-    fi
-
-    info "Checking for pyenv..."
-
-    if command_exists pyenv; then
-        success "pyenv already installed ($(pyenv --version))"
-    else
-        info "pyenv will be installed via Homebrew"
-    fi
-}
-
-install_bun() {
-    # Skip if using mise
-    if [ "$USE_MISE" = true ]; then
-        info "Skipping bun (using mise instead)"
-        return 0
-    fi
-
-    info "Checking for Bun..."
-
-    if command_exists bun; then
-        success "Bun already installed ($(bun --version))"
-    else
-        if [ "$DRY_RUN" = false ]; then
-            info "Installing Bun..."
-
-            # Download installer
-            if ! curl -fsSL https://bun.sh/install -o /tmp/install-bun.sh; then
-                error "Failed to download Bun installer"
-                return 1
-            fi
-
-            # Install Bun
-            if bash /tmp/install-bun.sh; then
-                rm -f /tmp/install-bun.sh
-                success "Bun installed"
-            else
-                error "Failed to install Bun"
-                rm -f /tmp/install-bun.sh
-                return 1
-            fi
-        else
-            info "[DRY RUN] Would install Bun"
-        fi
-    fi
 }
 
 install_rust() {
@@ -735,7 +683,7 @@ install_vscode_extensions() {
                 info "[DRY RUN] Would install $extension"
             fi
         fi
-    done < <(read_manifest "$REPO_ROOT/editors/vscode/extensions.txt" "$USE_MISE")
+    done < <(read_manifest "$REPO_ROOT/editors/vscode/extensions.txt")
 
     if [ ${#failed_extensions[@]} -ne 0 ]; then
         warning "Failed to install extensions: ${failed_extensions[*]}"
@@ -878,6 +826,38 @@ install_git_hooks() {
     fi
 }
 
+# The weekly drift check. launchd cannot expand $HOME or any variable, so the
+# template's placeholders are filled in with real paths on the way out.
+install_drift_agent() {
+    local template="$REPO_ROOT/bootstrap/launchd/com.dev-env.drift.plist.template"
+    local label="com.dev-env.drift"
+    local target="$HOME/Library/LaunchAgents/$label.plist"
+
+    [ -f "$template" ] || return 0
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would install the weekly drift check at $target"
+        return 0
+    fi
+
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.dev-env"
+
+    sed -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
+        -e "s|__HOME__|$HOME|g" \
+        "$template" > "$target"
+
+    # Replace any previous registration, so a moved checkout takes effect.
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+
+    if launchctl bootstrap "gui/$(id -u)" "$target" 2>/dev/null; then
+        success "Weekly drift check scheduled (Mondays, 10:00)"
+        info "Run it now with: ./scripts/notify-drift.sh --stdout"
+    else
+        warning "Could not load the drift check agent"
+        info "Load it by hand: launchctl bootstrap gui/$(id -u) $target"
+    fi
+}
+
 final_setup() {
     info "Running final setup..."
 
@@ -885,6 +865,7 @@ final_setup() {
     local local_zshrc="$HOME/.zshrc.local"
 
     install_git_hooks
+    install_drift_agent
 
     # Nothing here edits ~/.zshrc. It is a symlink into the repo, so sed -i or
     # an append would rewrite the tracked file and leave the checkout dirty.
@@ -945,18 +926,11 @@ final_setup() {
     echo "     code ~/.zshrc.local"
     echo ""
 
-    if [ "$USE_MISE" = true ]; then
-        info "Version management configured with mise"
-        echo "  - To add more tools, edit: $REPO_ROOT/mise/config.toml"
-        echo "  - Then run: mise install"
-        echo ""
-    else
-        info "Optional enhancements:"
-        echo "  - Migrate to mise for unified version management:"
-        echo "      ./bootstrap/install.sh --use-mise"
-        echo ""
-    fi
-
+    info "Version management runs through mise"
+    echo "  - To change a version, edit: $REPO_ROOT/mise/config.toml"
+    echo "  - Then run: mise install"
+    echo ""
+    info "Optional enhancements:"
     echo "  - Install git-delta for better diffs:"
     echo "      brew install git-delta"
     echo "      # Then uncomment delta section in git/gitconfig"
@@ -985,8 +959,7 @@ main() {
     # Initialize state tracking
     if command -v init_state_file &>/dev/null; then
         init_state_file
-        local mode="standard"
-        [ "$USE_MISE" = true ] && mode="mise"
+        local mode="mise"
         record_installation_start "$mode"
     fi
 
@@ -1040,57 +1013,20 @@ main() {
         FAILED_SECTIONS+=("oh_my_zsh")
     fi
 
-    # Version management: either mise or individual tools
-    if [ "$USE_MISE" = true ]; then
-        # mise is already installed via brew packages
-        # Now configure it and install tools
-        if setup_mise_config; then
-            SUCCESSFUL_SECTIONS+=("mise")
-            if command -v record_section_installed &>/dev/null; then
-                local tools="[]"
-                if command -v jq &>/dev/null; then
-                    tools=$(mise list 2>/dev/null | awk '{print $1"@"$2}' | jq -R -s -c 'split("\n") | map(select(length > 0))')
-                fi
-                record_section_installed "mise" "{\"tools\": $tools}"
+    # Version management. mise handles Node and Bun; rustup and conda keep
+    # their own tools. There is no second path: a single way to set a machine
+    # up is the whole reason the --use-mise flag is gone.
+    if install_mise && setup_mise_config; then
+        SUCCESSFUL_SECTIONS+=("mise")
+        if command -v record_section_installed &>/dev/null; then
+            local tools="[]"
+            if command -v jq &>/dev/null; then
+                tools=$(mise list 2>/dev/null | awk '{print $1"@"$2}' | jq -R -s -c 'split("\n") | map(select(length > 0))')
             fi
-        else
-            FAILED_SECTIONS+=("mise")
+            record_section_installed "mise" "{\"tools\": $tools}"
         fi
-
-        # Record skipped sections
-        SKIPPED_SECTIONS+=("nvm" "pyenv" "bun")
-        command -v record_section_skipped &>/dev/null && record_section_skipped "nvm" "using_mise"
-        command -v record_section_skipped &>/dev/null && record_section_skipped "pyenv" "using_mise"
-        command -v record_section_skipped &>/dev/null && record_section_skipped "bun" "using_mise"
     else
-        # Install individual version managers
-        if install_nvm; then
-            SUCCESSFUL_SECTIONS+=("nvm")
-            command -v record_section_installed &>/dev/null && \
-                record_section_installed "nvm" "{}"
-        else
-            FAILED_SECTIONS+=("nvm")
-        fi
-
-        if install_pyenv; then
-            SUCCESSFUL_SECTIONS+=("pyenv")
-            command -v record_section_installed &>/dev/null && \
-                record_section_installed "pyenv" "{}"
-        else
-            FAILED_SECTIONS+=("pyenv")
-        fi
-
-        if install_bun; then
-            SUCCESSFUL_SECTIONS+=("bun")
-            command -v record_section_installed &>/dev/null && \
-                record_section_installed "bun" "{}"
-        else
-            FAILED_SECTIONS+=("bun")
-        fi
-
-        # Record skipped mise
-        SKIPPED_SECTIONS+=("mise")
-        command -v record_section_skipped &>/dev/null && record_section_skipped "mise" "using_standard_mode"
+        FAILED_SECTIONS+=("mise")
     fi
 
     if install_rust; then

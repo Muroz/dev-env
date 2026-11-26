@@ -181,7 +181,7 @@ uninstall_brew_casks() {
         # installed by hand is left alone.
         local manifest="${REPO_ROOT:-$(dirname "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")")}/bootstrap/cask-apps.txt"
         if [ -f "$manifest" ]; then
-            state_casks=$(read_manifest "$manifest" "${USE_MISE:-false}")
+            state_casks=$(read_manifest "$manifest")
         fi
     fi
 
@@ -717,5 +717,35 @@ uninstall_shell_config() {
 
     record_section_uninstalled "$section"
     success "Shell configuration removed"
+    return 0
+}
+
+# ============================================================================
+# 14. Weekly Drift Check
+# ============================================================================
+
+uninstall_drift_agent() {
+    local section="drift_agent"
+    local label="com.dev-env.drift"
+    local plist="$HOME/Library/LaunchAgents/$label.plist"
+
+    info "Removing the weekly drift check..."
+
+    if [ ! -f "$plist" ]; then
+        info "Drift check agent not installed"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would unload and remove $plist"
+        return 0
+    fi
+
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    rm -f "$plist"
+
+    record_section_uninstalled "$section"
+    success "Drift check removed"
+    info "Its log stays at ~/.dev-env/drift.log"
     return 0
 }

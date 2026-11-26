@@ -67,6 +67,7 @@ BASH_SCRIPTS=(
     bootstrap/hooks/pre-commit
     scripts/check.sh
     scripts/doctor.sh
+    scripts/notify-drift.sh
     scripts/update-tools.sh
 )
 
@@ -192,7 +193,7 @@ check_manifests() {
         fi
 
         local count
-        count=$(read_manifest "$manifest" false | wc -l | tr -d ' ')
+        count=$(read_manifest "$manifest" | wc -l | tr -d ' ')
 
         if [ "$count" -eq 0 ]; then
             fail "$manifest parses to nothing"
@@ -201,15 +202,42 @@ check_manifests() {
         fi
     done
 
-    # The conditional markers only mean anything if the two modes differ.
-    local standard mise_mode
-    standard=$(read_manifest bootstrap/brew-packages.txt false | sort)
-    mise_mode=$(read_manifest bootstrap/brew-packages.txt true | sort)
+    # mise is how Node and Bun arrive, and nothing else should be competing
+    # to provide them.
+    #
+    # Captured first rather than piped into `grep -q`: with `set -o pipefail`,
+    # grep -q closes the pipe as soon as it matches, read_manifest dies of
+    # SIGPIPE, and the pipeline reports failure on success.
+    local formulas
+    formulas=$(read_manifest bootstrap/brew-packages.txt)
 
-    if [ "$standard" = "$mise_mode" ]; then
-        fail "brew-packages.txt is identical in both modes, so the [CONDITIONAL] markers are not working"
+    # mise is deliberately NOT a tracked formula: no bottle exists for this
+    # platform, so install.sh uses mise's own installer. Catch a well-meaning
+    # re-add, which would start an hours-long source build.
+    if grep -qx "mise" <<< "$formulas"; then
+        fail "mise is in brew-packages.txt; brew has no bottle for it here and would build from source"
     else
-        pass "mode conditionals change the package set"
+        pass "mise is not tracked as a formula"
+    fi
+
+    if grep -q "mise.run" bootstrap/install.sh; then
+        pass "install.sh installs mise from its own installer"
+    else
+        fail "install.sh has no way to install mise"
+    fi
+
+    local superseded
+    superseded=$(grep -xE "nvm|pyenv" <<< "$formulas" || true)
+    if [ -n "$superseded" ]; then
+        fail "superseded version manager(s) still tracked: $(echo "$superseded" | tr '\n' ' ')"
+    else
+        pass "no superseded version managers tracked"
+    fi
+
+    if grep -qE '^node = ' mise/config.toml; then
+        pass "mise/config.toml pins node"
+    else
+        fail "mise/config.toml does not pin node"
     fi
 
     # An entry with whitespace or an inline comment would be passed to brew
@@ -222,10 +250,60 @@ check_manifests() {
                 ;;
         esac
     done < <(
-        read_manifest bootstrap/brew-packages.txt true
-        read_manifest bootstrap/cask-apps.txt true
-        read_manifest editors/vscode/extensions.txt true
+        read_manifest bootstrap/brew-packages.txt
+        read_manifest bootstrap/cask-apps.txt
+        read_manifest editors/vscode/extensions.txt
     )
+}
+
+# ============================================================================
+# 4b. Machine-readable files parse
+# ============================================================================
+
+check_data_files() {
+    step "Data files"
+
+    local template="bootstrap/launchd/com.dev-env.drift.plist.template"
+    if [ -f "$template" ]; then
+        # A template, so the placeholders are substituted before parsing.
+        if python3 -I -c "
+import plistlib, sys, pathlib
+raw = pathlib.Path('$template').read_bytes()
+raw = raw.replace(b'__REPO_ROOT__', b'/repo').replace(b'__HOME__', b'/home')
+d = plistlib.loads(raw)
+assert d['Label'] == 'com.dev-env.drift', 'unexpected label'
+assert d['ProgramArguments'][0].endswith('scripts/notify-drift.sh'), 'unexpected program'
+" 2>/dev/null; then
+            pass "launchd template parses, with the expected label and program"
+        else
+            fail "launchd template is not a valid plist"
+        fi
+
+        # Every placeholder must be substituted, or launchd gets a literal
+        # path and the agent silently never runs.
+        local unfilled
+        unfilled=$(grep -oE '__[A-Z_]+__' "$template" | sort -u | tr '\n' ' ')
+        if [ "$unfilled" = "__HOME__ __REPO_ROOT__ " ]; then
+            pass "template placeholders are the two install.sh substitutes"
+        else
+            fail "unexpected placeholders in the template: $unfilled"
+        fi
+    fi
+
+    if [ -f renovate.json ]; then
+        if python3 -I -c "import json; json.load(open('renovate.json'))" 2>/dev/null; then
+            pass "renovate.json is valid JSON"
+        else
+            fail "renovate.json is not valid JSON"
+        fi
+    fi
+
+    # Two bots on the same ecosystem means duplicate pull requests.
+    if [ -f renovate.json ] && [ -f .github/dependabot.yml ]; then
+        if grep -q "github-actions" .github/dependabot.yml 2>/dev/null; then
+            fail "Renovate and Dependabot both cover github-actions"
+        fi
+    fi
 }
 
 # ============================================================================
@@ -289,15 +367,11 @@ check_dry_runs() {
     local before after
     before=$(git status --porcelain)
 
-    local mode
-    for mode in "" "--use-mise"; do
-        # shellcheck disable=SC2086  # intentional word splitting on $mode
-        if ./bootstrap/install.sh --dry-run $mode >/dev/null 2>&1; then
-            pass "install.sh --dry-run ${mode:-standard} succeeded"
-        else
-            fail "install.sh --dry-run ${mode:-standard} failed"
-        fi
-    done
+    if ./bootstrap/install.sh --dry-run >/dev/null 2>&1; then
+        pass "install.sh --dry-run succeeded"
+    else
+        fail "install.sh --dry-run failed"
+    fi
 
     if ./scripts/update-tools.sh --dry-run >/dev/null 2>&1; then
         pass "update-tools.sh --dry-run succeeded"
@@ -330,6 +404,7 @@ main() {
     check_syntax
     check_shellcheck
     check_manifests
+    check_data_files
     check_no_secrets
     check_dry_runs
 
