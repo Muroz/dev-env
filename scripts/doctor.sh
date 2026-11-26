@@ -333,18 +333,32 @@ check_versions() {
     # once mise is in, because their shims sit on PATH ahead of it and a stale
     # one then wins silently. Until mise is installed they are what provides
     # node, so saying "remove these" would be advice to break the shell.
-    local leftover=()
-    command_exists pyenv && leftover+=("pyenv")
-    [ -d "$HOME/.nvm" ] && leftover+=(".nvm directory")
-    [ -d "$HOME/.bun" ] && leftover+=(".bun directory")
+    # Drift is a superseded manager that can still put shims on PATH ahead of
+    # mise, which is how a stale version wins silently. A leftover versions
+    # directory cannot: nothing sources it once the manager is gone, so it is
+    # inert data the uninstaller deliberately preserved. Reported, not flagged.
+    local active=()
+    command_exists pyenv && active+=("pyenv")
+    [ -s "$HOME/.nvm/nvm.sh" ] && active+=("nvm")
+    [ -x "$HOME/.bun/bin/bun" ] && active+=("standalone bun")
 
-    if [ ${#leftover[@]} -eq 0 ]; then
-        ok "no superseded version managers left behind"
+    local preserved=()
+    [ -d "$HOME/.nvm/versions" ] && preserved+=("$HOME/.nvm/versions")
+    [ -d "$HOME/.pyenv/versions" ] && preserved+=("$HOME/.pyenv/versions")
+
+    if [ ${#active[@]} -eq 0 ]; then
+        ok "no superseded version manager can shadow mise"
     elif command_exists mise; then
-        drift "superseded by mise but still present: ${leftover[*]}"
+        drift "superseded by mise but still loadable: ${active[*]}"
         fix "./bootstrap/uninstall.sh --sections nvm,pyenv,bun"
     else
-        note "still providing node and bun until mise is installed: ${leftover[*]}"
+        note "still providing node and bun until mise is installed: ${active[*]}"
+    fi
+
+    if [ ${#preserved[@]} -gt 0 ]; then
+        local size
+        size=$(du -sh "${preserved[@]}" 2>/dev/null | awk '{s=$1} END {print s}')
+        note "tool versions kept by the uninstaller: ${preserved[*]} (last ${size:-unknown})"
     fi
 }
 

@@ -86,6 +86,23 @@ kind
 openjdk@17
 
 # ============================================================================
+# Build toolchain
+# ============================================================================
+# Homebrew keeps these because it needs them to BUILD other formulas from
+# source, and on this platform it has to: macOS 14 arm64 is a Tier 3
+# configuration with no bottles, so graphite2, jpeg-turbo, json-c, lz4,
+# poetry, webp and zstd are all built locally. `brew uninstall` refuses to
+# remove them for that reason, and `brew autoremove` leaves them alone.
+#
+# They are tracked so doctor.sh does not report them as untracked for ever.
+# Once a macOS upgrade puts this machine back on a tier with bottles, nothing
+# needs to build locally and `brew autoremove` should take them.
+cmake
+autoconf
+pkgconf
+python@3.15
+
+# ============================================================================
 # Suggested, not yet installed
 # ============================================================================
 # Uncomment what you want on both machines, then run ./scripts/update-tools.sh.

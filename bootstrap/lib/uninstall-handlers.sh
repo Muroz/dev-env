@@ -307,7 +307,16 @@ uninstall_nvm() {
         else
             info "[DRY RUN] Would remove: $HOME/.nvm, including every Node version"
         fi
+        info "[DRY RUN] Would uninstall nvm via brew"
         return 0
+    fi
+
+    # nvm comes from Homebrew, same as pyenv did, so the formula goes too.
+    # Removing only ~/.nvm left the formula installed, which then showed up as
+    # an untracked formula in doctor.sh for ever.
+    if command_exists brew && brew list --formula nvm &>/dev/null; then
+        info "Uninstalling nvm via Homebrew..."
+        brew uninstall nvm
     fi
 
     if [ "$REMOVE_DATA" = false ] && [ "$node_versions" -gt 0 ]; then
