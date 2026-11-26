@@ -400,6 +400,7 @@ setup_mise_config() {
     if [ "$DRY_RUN" = true ]; then
         info "[DRY RUN] Would use tool versions from $config_file as committed"
         info "[DRY RUN] Would create symlink: $global_config → $config_file"
+        info "[DRY RUN] Would run: mise trust $config_file"
         info "[DRY RUN] Would run: mise install"
         return 0
     fi
@@ -432,6 +433,17 @@ setup_mise_config() {
     # Create symlink to our config
     ln -sf "$config_file" "$global_config"
     success "Symlinked mise config: $global_config → $config_file"
+
+    # mise refuses a config file it has not been told to trust, so without
+    # this `mise install` below fails on a fresh machine. Carried over from
+    # 6c66255, which fixed it on the other laptop.
+    info "Trusting the mise config..."
+    if mise trust "$config_file"; then
+        success "mise config trusted"
+    else
+        warning "Could not trust the mise config"
+        info "Run: mise trust $config_file"
+    fi
 
     # Activate mise for current session
     eval "$(mise activate bash)"
