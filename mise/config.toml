@@ -1,70 +1,43 @@
-# Mise configuration for global tool versions
+# Global tool versions, managed by mise.
 #
-# This config documents current versions and provides a migration path
+# Symlinked to ~/.config/mise/config.toml by `./bootstrap/install.sh --use-mise`.
+# These versions are used exactly as committed — the installer does not rewrite
+# this file, so the repo stays clean and `git pull` in update-tools.sh keeps
+# working.
 #
-# Current setup uses:
-# - nvm for Node.js (currently: v22.13.1)
-# - pyenv for Python (currently: system)
-# - bun standalone (currently: 1.0.0)
-# - cargo/rustup for Rust (currently: 1.91.1)
-#
-# TO MIGRATE TO MISE:
-# 1. Install mise: brew install mise
-# 2. Uncomment the mise activation line in shell/zshrc
-# 3. Optionally remove old version managers from zshrc (nvm, pyenv sections)
-# 4. Uncomment the tool versions below
-# 5. Run: mise install
-# 6. Restart shell
-
-# ============================================================================
-# Tool Versions
-# ============================================================================
-# Uncomment and adjust versions when migrating to mise:
+# Changing a version here and running `mise install` on each laptop is how the
+# two machines stay on the same toolchain.
 
 [tools]
-# Node.js version (currently managed by nvm)
-# node = "22.13.1"
+# Node.js. 22 is the line both machines are on today (maintenance LTS).
+node = "22"
 
-# Python version (currently managed by pyenv)
-# python = "3.13"
+# Python. pyenv had no global version set, so this pins what was in use.
+python = "3.12"
 
-# Bun version (currently standalone install)
-# bun = "1.0.0"
-
-# Rust (optional - usually managed by rustup)
-# rust = "1.91.1"
-
-# Additional tools you might want to add:
-# pnpm = "latest"
-# go = "latest"
-# deno = "latest"
+# Bun. 1.0.0 was installed and is three years stale; 1.4 is the current line.
+bun = "1.4"
 
 # ============================================================================
-# Per-project version overrides
+# Upgrade targets
 # ============================================================================
-# You can override these versions in any project by creating a .mise.toml
-# file in the project root with different versions.
+# Current upstream as of 2026-11. Moving to these is a deliberate choice, not
+# something an install should do behind your back — edit the values above when
+# you want them, then run `mise install` on both laptops.
 #
-# Example project .mise.toml:
+#   node   = "26"     Node 26 is the active LTS line; 22 is in maintenance
+#   python = "3.14"   3.14 is the current stable series
+#
+# Rust stays with rustup and conda stays with conda in both modes, so neither
+# is listed here.
+
+# ============================================================================
+# Per-project overrides
+# ============================================================================
+# A .mise.toml in any project overrides these, and mise switches versions as
+# you cd between directories. mise also reads .nvmrc and .python-version, so
+# existing projects need no change.
+#
 #   [tools]
 #   node = "20.11.0"
 #   python = "3.11"
-#
-# This allows different projects to use different tool versions while
-# maintaining a consistent baseline across all projects.
-
-# ============================================================================
-# Configuration Options
-# ============================================================================
-# [settings]
-# experimental = true
-# verbose = false
-# jobs = 4  # number of jobs to run in parallel during installation
-
-# ============================================================================
-# Environment Variables
-# ============================================================================
-# You can set environment variables globally here:
-# [env]
-# NODE_ENV = "development"
-# PYTHON_ENV = "development"

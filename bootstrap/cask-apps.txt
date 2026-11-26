@@ -1,1 +1,98 @@
-claude-code
+# Homebrew Cask Applications
+#
+# Casks are used here to BOOTSTRAP a machine and to inventory what belongs on
+# it. They are not an update channel: every app below updates itself, and
+# Homebrew leaves such casks alone unless you ask it not to.
+#
+# Two rules keep casks from fighting the apps they installed:
+#
+#   1. Never run `brew upgrade --cask --greedy` and never set
+#      HOMEBREW_UPGRADE_GREEDY. Without --greedy, brew skips casks marked
+#      `auto_updates true`, so a self-updating app stays on the version it
+#      updated itself to. With --greedy, brew reinstalls the older pinned
+#      version over the top. That is what makes an app "need reinstalling".
+#   2. Install with `brew install --cask --adopt`, which install.sh passes.
+#      On a fresh machine this is just an install. On a machine where the app
+#      was downloaded by hand, --adopt tries to take it over in place instead
+#      of refusing or clobbering it.
+#
+#      Expect adoption to fail more often than not, for three reasons:
+#
+#        - It only adopts an app IDENTICAL to the cask's version. These apps
+#          update themselves, so they drift from the cask within days and the
+#          window where the versions match is narrow.
+#        - It runs `sudo chgrp -hR admin` on the bundle, so it needs a
+#          terminal that can prompt for a password. It never works unattended.
+#        - With SIP on, that chgrp fails outright on a bundle owned by
+#          root:wheel, which is how a pkg-based installer leaves it.
+#
+#      None of that matters much. The point of this file is a fresh machine:
+#      the apps get installed. On a machine where they already exist, brew
+#      management is bookkeeping, and ./scripts/doctor.sh reports an
+#      unmanaged app as a note rather than a problem. To hand one over
+#      properly, let brew reinstall it:
+#
+#        brew install --cask <name>     # replaces the app, keeps ~/Library
+#
+# One kind of cask cannot play along: a cask whose artifact is a `pkg` rather
+# than an `app`. --adopt only works on app bundles, so brew has no way to take
+# over an existing install and `brew install --cask` runs the vendor's
+# installer over the top instead. For an app with a system extension or a
+# login item, that is a disruptive reinstall rather than a no-op. Check before
+# adding one:
+#
+#   brew info --cask --json=v2 <name> | grep -o '"pkg"'
+#
+# Add an app here only if Homebrew can manage it end to end, and only if you
+# want it on every machine. Apps not listed are simply not managed by this
+# repo; nothing removes them. `./scripts/doctor.sh` reports only what is
+# listed here, so an app you install by hand on one laptop stays its own
+# business.
+#
+# Two kinds of app cannot be managed even if you want them to be:
+#
+#   - A self-updating CLI, such as the Claude Code binary. Its cask pins a
+#     version while the tool updates itself, so brew keeps reinstalling the
+#     older one. Use the vendor's installer.
+#   - A pkg cask (see above). Tailscale and Zoom are both pkg casks.
+
+# ============================================================================
+# Terminal & Editors
+# ============================================================================
+
+# Ghostty - terminal emulator
+ghostty
+
+# Visual Studio Code - editor (extensions live in editors/vscode/extensions.txt)
+visual-studio-code
+
+# Obsidian - notes, markdown vault
+obsidian
+
+# ============================================================================
+# Containers & Infrastructure
+# ============================================================================
+
+# Docker Desktop - container runtime, provides the `docker` CLI
+docker-desktop
+
+# ============================================================================
+# Databases
+# ============================================================================
+
+# DBeaver Community - multi-database GUI client
+dbeaver-community
+
+# ============================================================================
+# System
+# ============================================================================
+
+# NordPass - password manager
+nordpass
+
+# ============================================================================
+# Communication
+# ============================================================================
+
+# Slack
+slack

@@ -7,12 +7,15 @@ A centralized configuration repository for consistent development environments a
 - [Overview](#overview)
 - [Repository Structure](#repository-structure)
 - [Quick Start](#quick-start)
+- [Checking for drift](#checking-for-drift)
+- [Quality gates](#quality-gates)
 - [Detailed Configuration](#detailed-configuration)
   - [Bootstrap](#bootstrap)
   - [Shell Configuration](#shell-configuration)
   - [Git Configuration](#git-configuration)
   - [VS Code Settings](#vs-code-settings)
   - [Version Management](#version-management)
+  - [Cask applications](#cask-applications)
   - [Update Scripts](#update-scripts)
 - [Usage Patterns](#usage-patterns)
 - [Security](#security)
@@ -28,8 +31,10 @@ This repository provides:
 - **Modular shell config**: Organized zsh configuration with custom aliases and functions
 - **Consistent git workflow**: Shared git configuration with modern best practices
 - **Synchronized editor**: VS Code settings and extensions across all machines
-- **Version management**: Document current tool versions with optional mise migration path
+- **Version management**: Pinned tool versions, with nvm/pyenv or mise
 - **Update automation**: Scripts to keep all machines in sync
+- **Drift detection**: `scripts/doctor.sh` reports every way a machine differs
+  from this repo, and changes nothing itself
 
 **Important**: This repository contains configuration only, no secrets. SSH keys, API tokens, and credentials are managed separately.
 
@@ -41,10 +46,20 @@ This repository provides:
 dev-env/
 ├── bootstrap/
 │   ├── install.sh           # Main bootstrap script for fresh Mac setup
-│   ├── brew-packages.txt    # Homebrew formula packages to install
-│   └── cask-apps.txt        # Homebrew cask applications to install
+│   ├── uninstall.sh         # Selective or full removal
+│   ├── brew-packages.txt    # Homebrew formulas to install
+│   ├── cask-apps.txt        # Homebrew cask applications to install
+│   ├── hooks/
+│   │   └── pre-commit       # Runs check.sh before a commit
+│   └── lib/
+│       ├── utils.sh         # Output, prompts, JSON helpers
+│       ├── state.sh         # Records what was installed
+│       ├── sections.sh      # Section and group definitions
+│       ├── packages.sh      # Manifest parsing, shared by install and update
+│       └── uninstall-handlers.sh
 ├── shell/
 │   ├── zshrc                # Main zsh configuration
+│   ├── zshrc.local.example  # Template for per-machine settings
 │   ├── zsh_aliases.sh       # Custom shell aliases
 │   └── zsh_functions.sh     # Custom shell functions
 ├── git/
@@ -56,9 +71,14 @@ dev-env/
 │       ├── keybindings.json # VS Code keybindings
 │       └── extensions.txt   # VS Code extensions list
 ├── mise/
-│   └── config.toml          # Version management configuration (optional)
+│   └── config.toml          # Pinned tool versions for mise mode
 ├── scripts/
-│   └── update-tools.sh      # Script to sync changes across machines
+│   ├── update-tools.sh      # Sync this machine with the repo
+│   ├── doctor.sh            # Report drift between machine and repo
+│   └── check.sh             # Quality gate for the repo itself
+├── .github/
+│   └── workflows/
+│       └── checks.yml       # Runs check.sh on push and pull request
 ├── .gitignore               # Prevent committing sensitive data
 ├── .env.example             # Environment variables template
 └── README.md                # This file
@@ -144,16 +164,87 @@ dev-env/
 On machines that already have the configuration:
 
 ```bash
-cd ~/dev-env
 ./scripts/update-tools.sh
 ```
 
 This will:
-- Pull latest changes from git
-- Update Homebrew and packages
-- Install new VS Code extensions
-- Refresh symlinks
-- Update version managers
+- Pull the latest commits, then re-run itself so the new version is the one
+  that does the work
+- Update Homebrew formulas
+- Install anything added to the manifests since last time
+- Install new VS Code extensions and copy the settings over
+- Update the version managers for the mode this machine was installed in
+- Refresh the symlinks
+
+Preview it first with `./scripts/update-tools.sh --dry-run`, which prints every
+command it would run and changes nothing.
+
+It never upgrades casks. See [Cask applications](#cask-applications).
+
+---
+
+## Checking for drift
+
+Two laptops only stay interchangeable if you can see when they stop being so.
+
+```bash
+./scripts/doctor.sh
+```
+
+It compares this machine against the repo and reports every difference:
+symlinks that are not in place, formulas and apps installed on one machine but
+not tracked, extensions missing or extra, VS Code settings that differ, tool
+versions, git identity and whether the checkout is behind the remote.
+
+It reads only. Nothing is installed, changed or removed, and each finding comes
+with the command that would fix it. Exit status is 0 when the machine matches
+the repo and 1 when it does not, so it also works in a shell prompt or a
+pre-flight check.
+
+Run it on both laptops. Matching output is the whole point of this repo.
+
+```bash
+./scripts/doctor.sh --quiet
+```
+
+`--quiet` reports only the problems.
+
+### Adopting apps installed by hand
+
+An app downloaded from the vendor is present but not managed by Homebrew.
+Doctor reports that as a note, not a problem, because the app is there and
+that is what makes two machines equivalent. Who installed it does not matter.
+
+If you want brew to manage it anyway, `--adopt` is the gentle option, and it
+usually will not work:
+
+```bash
+brew install --cask --adopt ghostty obsidian
+```
+
+Three things get in the way:
+
+- **It only adopts an identical app.** The flag's own wording is "artifacts in
+  the destination that are identical to those being installed". Every app
+  worth tracking updates itself, so it drifts from the cask version within
+  days. Tried here on six apps, five had already moved on, Ghostty 1.3.1
+  against the cask's 1.4.0 among them.
+- **It needs your password.** Adoption runs `sudo chgrp -hR admin` on the
+  bundle, so it never works unattended.
+- **SIP blocks it on a root-owned bundle.** An app left by a pkg installer is
+  owned by `root:wheel`, and that `chgrp` then fails with `Operation not
+  permitted` even under sudo. Slack here is one.
+
+The option that does work is letting brew reinstall the app:
+
+```bash
+brew install --cask slack
+```
+
+That replaces the bundle with the cask's version and registers it. Settings in
+`~/Library` are untouched, and because the cask is `auto_updates true` brew
+leaves it alone afterwards while the app updates itself. One deliberate
+reinstall per app, and only if you want the bookkeeping.
 
 ---
 
@@ -345,6 +436,58 @@ The uninstall system includes multiple safety mechanisms:
 
 ---
 
+## Quality gates
+
+`doctor.sh` checks the machine. `check.sh` checks the repo.
+
+```bash
+./scripts/check.sh
+```
+
+It runs in three or four seconds and verifies:
+
+- **Script inventory** — every shell script in the repo is covered by the
+  checks below. A new script that nobody wired up fails here rather than going
+  unchecked.
+- **Syntax** — `bash -n` on the scripts, `zsh -n` on the shell config.
+- **shellcheck** — `-x` so sourced files are followed, held at
+  `--severity=warning`. Info-level notes are left alone: they are style
+  preferences, and gating on them would mean churn without a bug fixed.
+- **Manifests** — each one parses to a non-empty list, no entry contains
+  whitespace or a stray comment, and the `[CONDITIONAL]` markers actually
+  change the package set between modes.
+- **Tracked files** — no identity in `git/gitconfig`, no key material
+  anywhere, and nothing the global gitignore is silently hiding.
+- **Installer dry runs** — both modes of `install.sh` and `update-tools.sh`
+  exit 0 and leave the checkout byte-identical. This is the check that catches
+  an installer editing a tracked file.
+
+`--fast` skips the dry runs, which are the slow part.
+
+### Where it runs
+
+**Before each commit.** `install.sh` links `bootstrap/hooks/pre-commit` into
+this checkout, which runs `check.sh --fast`. To commit regardless:
+
+```bash
+git commit --no-verify
+```
+
+**On push and pull request.** `.github/workflows/checks.yml` runs on
+`macos-latest`, because these scripts assume Homebrew and `/Applications`. CI
+runs the full set including the dry runs.
+
+Install the hook by hand if you did not run the bootstrap script:
+
+```bash
+ln -sfn ../../bootstrap/hooks/pre-commit .git/hooks/pre-commit
+```
+
+`shellcheck` is tracked in `bootstrap/brew-packages.txt`, so a machine set up
+from this repo can run the gate.
+
+---
+
 ## Detailed Configuration
 
 ### Bootstrap
@@ -441,13 +584,16 @@ The bootstrap script supports two approaches for managing programming language v
 
 **Machine-specific Settings**:
 
-The script creates `~/.zshrc.local` for machine-specific customizations that aren't tracked in git:
-- `DOTFILES_DIR` environment variable
-- Custom PATH additions
+The script copies `shell/zshrc.local.example` to `~/.zshrc.local`, which is not
+tracked in git, and `shell/zshrc` sources it last:
+- PATH additions for one machine only
 - Machine-specific aliases or functions
-- Local environment variables
+- Sourcing local credentials
+- Anything that differs between machines
 
-This keeps the repository clean while allowing per-machine customization.
+This is what lets `shell/zshrc` stay byte-identical on every laptop. If you
+find yourself editing the tracked `zshrc` for something true of one machine,
+it belongs in `~/.zshrc.local` instead.
 
 **Brew Packages** (`brew-packages.txt`):
 - `mise` - Unified version manager (only with `--use-mise`)
@@ -501,10 +647,10 @@ Sets up:
 
 #### Local Configuration (`~/.zshrc.local`)
 
-**Not tracked in git** - created automatically by bootstrap script.
+**Not tracked in git** - created by the bootstrap script from
+`shell/zshrc.local.example`, and never overwritten if it already exists.
 
 This file is for machine-specific settings:
-- `DOTFILES_DIR` environment variable (set to `~/dev-env`)
 - Custom PATH additions for this machine only
 - Machine-specific aliases or functions
 - Local environment variables
@@ -764,11 +910,15 @@ The repository supports two version management approaches. Choose the one that f
 #### Standard Mode (Default)
 
 Uses **individual version managers**:
-- **nvm** for Node.js (v22.13.1)
-- **pyenv** for Python (system)
-- **bun** standalone (1.0.0)
-- **cargo/rustup** for Rust (1.91.1)
+- **nvm** for Node.js
+- **pyenv** for Python
+- **bun** standalone
+- **cargo/rustup** for Rust
 - **conda** for data science environments
+
+Versions are whatever each manager has installed. Run `./scripts/doctor.sh` to
+print what this machine is on; `mise/config.toml` records the versions the two
+laptops are meant to share.
 
 **Installation**:
 ```bash
@@ -808,11 +958,15 @@ Uses **mise** as a unified version manager that replaces nvm, pyenv, and bun wit
 This automatically:
 1. Installs mise via Homebrew
 2. Skips individual nvm/pyenv/bun installations
-3. Uncomments tool versions in `mise/config.toml`
-4. Creates symlink: `~/.config/mise/config.toml` → `~/dev-env/mise/config.toml`
-5. Activates mise in shell configuration
-6. Installs all configured tools (Node.js 22.13.1, Python 3.13, Bun 1.0.0)
-7. Shows installed tool versions
+3. Symlinks `~/.config/mise/config.toml` to this repo's `mise/config.toml`
+4. Installs the tools that config pins
+5. Shows installed tool versions
+
+The installer does not edit `mise/config.toml`. Its versions are used exactly
+as committed, which keeps the checkout clean — a dirty checkout would stop the
+`git pull` in `update-tools.sh`. `shell/zshrc` activates mise by itself
+whenever `~/.config/mise/config.toml` exists, so nothing patches your shell
+config either.
 
 **Usage Examples**:
 ```bash
@@ -831,13 +985,19 @@ mise current
 ```
 
 **Configuration**:
-Global config at `~/.config/mise/config.toml` (symlinked to `~/dev-env/mise/config.toml`):
+Global config at `~/.config/mise/config.toml`, symlinked to this repo's
+`mise/config.toml`:
 ```toml
 [tools]
-node = "22.13.1"
-python = "3.13"
-bun = "1.0.0"
+node = "22"
+python = "3.12"
+bun = "1.4"
 ```
+
+Changing a version here and running `mise install` on each laptop is how both
+machines move together. `mise/config.toml` also lists the current upstream
+versions as upgrade targets, so moving to Node 26 or Python 3.14 stays a
+deliberate edit rather than something an install does behind your back.
 
 **Per-Project Versions**:
 Create `.mise.toml` in any project to override global versions:
@@ -913,6 +1073,60 @@ If you're already using standard mode and want to migrate:
 
 ---
 
+### Cask applications
+
+**File**: `bootstrap/cask-apps.txt`
+
+Casks are used to bootstrap a machine and to inventory what belongs on it. They
+are not an update channel. Every tracked app ships its own updater, and the
+repo leaves them to it.
+
+#### Why an app seems to need reinstalling
+
+Homebrew records the version a cask installed. A self-updating app then moves
+past that version on its own, so brew considers it outdated. Two things follow
+from that:
+
+- `brew upgrade --cask` skips casks marked `auto_updates true`, which is almost
+  all of them, so by default nothing happens. Add `--greedy` (or set
+  `HOMEBREW_UPGRADE_GREEDY`) and brew reinstalls its older pinned version over
+  the app that had updated itself. **Never pass `--greedy` here.**
+  `update-tools.sh` runs `brew upgrade --formula`, never `--cask`.
+- `brew install --cask` on an app already in `/Applications` from a manual
+  download either refuses or overwrites it. Passing `--adopt` tries to take
+  the existing app over in place instead, and `install.sh` and
+  `update-tools.sh` both do. It often cannot; see below.
+
+#### What cannot be tracked
+
+A cask whose artifact is a `pkg` rather than an `app` cannot be adopted:
+`--adopt` only works on app bundles, so brew has no way to take over an
+existing install and runs the vendor's installer instead. For an app with a
+system extension or a login item, such as Tailscale, that is a disruptive
+reinstall rather than a no-op. Check before adding one:
+
+```bash
+brew info --cask --json=v2 <name> | grep -o '"pkg"'
+```
+
+A self-updating CLI is the other case to avoid: its cask pins a version while
+the tool updates itself, so brew keeps reinstalling the older one. The Claude
+Code binary is the example here, and it is installed natively instead.
+
+#### Tracked apps
+
+Ghostty, VS Code, Obsidian, Docker Desktop, DBeaver Community, NordPass and
+Slack.
+
+Anything not listed is simply not managed by this repo. Nothing removes it,
+and doctor does not report it, so an app you want on one laptop only needs no
+bookkeeping.
+
+Add one by appending it to `bootstrap/cask-apps.txt`, then run
+`./scripts/doctor.sh` on the other laptop to see it reported as missing.
+
+---
+
 ### Update Scripts
 
 **File**: `scripts/update-tools.sh`
@@ -920,25 +1134,47 @@ If you're already using standard mode and want to migrate:
 Synchronizes configuration changes across all machines.
 
 **What it does**:
-1. Pulls latest changes from git repository
-2. Updates Homebrew and all packages
-3. Installs new packages from brew-packages.txt
-4. Updates VS Code extensions
-5. Copies latest VS Code settings
-6. Updates version managers (nvm, pyenv, bun, rust, conda)
-7. Runs `mise install` if mise is installed
-8. Refreshes configuration symlinks
+1. Pulls the repo, then re-executes itself if the pull brought in changes, so
+   a half-old and half-new script never runs
+2. Updates Homebrew formulas (`brew upgrade --formula`, never casks)
+3. Installs anything added to `brew-packages.txt` and `cask-apps.txt`
+4. Updates VS Code extensions and copies the settings over, backing up the
+   existing ones first
+5. Updates the version managers for the mode this machine was installed in,
+   read from `~/.dev-env/state.json`, so a mise machine is never handed nvm
+   and pyenv as well
+6. Refreshes the configuration symlinks, leaving any regular file in place
 
 **Usage**:
 ```bash
-cd ~/dev-env
 ./scripts/update-tools.sh
 ```
+
+Preview without changing anything:
+```bash
+./scripts/update-tools.sh --dry-run
+```
+
+Skip the pull and use the checkout as it stands:
+```bash
+./scripts/update-tools.sh --no-pull
+```
+
+It stops short of pulling when the checkout has uncommitted changes, rather
+than failing partway through.
 
 After running, restart your terminal or:
 ```bash
 source ~/.zshrc
 ```
+
+**Options**:
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Print every command it would run, change nothing. Implies `--no-pull`. |
+| `--no-pull` | Use the working tree as it stands. |
+| `--help` | Usage. |
 
 ---
 
@@ -1140,15 +1376,26 @@ git config --global user.email "$GIT_USER_EMAIL"
 **Problem**: Aliases from `zsh_aliases.sh` not available
 
 **Solution**:
+`shell/zshrc` works out the repo location from the `~/.zshrc` symlink, so this
+normally resolves itself. Check what it found:
+
 ```bash
-# Check if DOTFILES_DIR is set
 echo $DOTFILES_DIR
+```
 
-# If not set, add to ~/.zshrc:
-export DOTFILES_DIR="$HOME/dev-env"
+If `~/.zshrc` is a regular file rather than a symlink, the lookup falls back to
+`~/dev-env`. Re-run the bootstrap script to back up the file and link it:
 
-# Reload
-source ~/.zshrc
+```bash
+./bootstrap/install.sh
+```
+
+`~/.zshrc.local` is sourced after the aliases, so setting `DOTFILES_DIR` there
+is too late to help. To override it without the symlink, export it from
+`~/.zprofile`, which zsh reads first:
+
+```bash
+export DOTFILES_DIR="$HOME/Coding/dev-env"
 ```
 
 ### Homebrew packages fail to install

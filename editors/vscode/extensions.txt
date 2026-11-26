@@ -143,3 +143,73 @@ styled-components.vscode-styled-components
 
 # Pretty TypeScript errors
 yoavbls.pretty-ts-errors
+
+# ============================================================================
+# Frameworks
+# ============================================================================
+
+# Svelte language support
+svelte.svelte-vscode
+
+# Vue language support (Volar)
+vue.volar
+
+# React/Redux/GraphQL snippets
+dsznajder.es7-react-js-snippets
+
+# ============================================================================
+# Databases & APIs
+# ============================================================================
+
+# Prisma schema language support
+prisma.prisma
+
+# Generate UML diagrams from a Prisma schema
+abians.prisma-generate-uml
+
+# GraphQL syntax and tooling
+kumar-harsh.graphql-for-vscode
+
+# HTTP status code reference
+rohinivsenthil.postcode
+
+# ============================================================================
+# Git & Project Navigation
+# ============================================================================
+
+# Git history as a graph
+mhutchie.git-graph
+
+# Switch between projects from the command palette
+alefragnani.project-manager
+
+# ============================================================================
+# Containers
+# ============================================================================
+
+# Container management (companion to the Docker extension)
+ms-azuretools.vscode-containers
+
+# Docker's own extension
+docker.docker
+
+# ============================================================================
+# Game Development
+# ============================================================================
+
+# Godot language support and debugger
+geequlim.godot-tools
+
+# ============================================================================
+# SVG
+# ============================================================================
+
+# SVG language support and viewer
+jock.svg
+
+# ============================================================================
+# Formatting
+# ============================================================================
+
+# Prettier run through ESLint, for projects that configure it that way
+rvest.vs-code-prettier-eslint

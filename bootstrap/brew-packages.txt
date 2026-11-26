@@ -44,3 +44,61 @@ tippecanoe
 # Tool for reading and writing PMTiles archives (cloud-optimized map tile format)
 # Enables efficient map tile storage and serving
 pmtiles
+
+# ============================================================================
+# Required by the bootstrap scripts
+# ============================================================================
+
+# jq - JSON processor. bootstrap/lib/state.sh records what it installed as
+# JSON and silently records nothing without it. The only jq otherwise on this
+# machine came from Anaconda, which is on PATH only when conda is active.
+jq
+
+# shellcheck - static analysis for shell scripts. ./scripts/check.sh runs it
+# over every script in this repo and the CI workflow enforces it, so the repo
+# needs it present to be checked locally.
+shellcheck
+
+# ============================================================================
+# Git & GitHub
+# ============================================================================
+
+# GitHub CLI - pull requests, issues, releases from the terminal
+gh
+
+# Rewrite git history (branch filtering, removing large files or secrets)
+git-filter-repo
+
+# ============================================================================
+# Kubernetes
+# ============================================================================
+
+# Helm - Kubernetes package manager
+helm
+
+# kind - run local Kubernetes clusters inside Docker
+kind
+
+# ============================================================================
+# JVM
+# ============================================================================
+
+# OpenJDK 17 - LTS Java runtime and compiler
+openjdk@17
+
+# ============================================================================
+# Suggested, not yet installed
+# ============================================================================
+# Uncomment what you want on both machines, then run ./scripts/update-tools.sh.
+# Each line says what it replaces, so you can judge whether it earns its place.
+#
+# uv          Python package and project manager. Resolves and installs an
+#             order of magnitude faster than pip or poetry, and manages
+#             interpreters too, so it can stand in for pyenv.
+# ruff        Python linter and formatter. Replaces flake8, isort and black.
+# ripgrep     Recursive search. Faster than grep -r and respects .gitignore.
+# fd          File finder with a sane interface. Replaces most `find` use.
+# direnv      Per-directory environment variables, loaded on cd.
+# lazygit     Terminal UI for git.
+# zoxide      Directory jumping that learns where you actually go.
+# fzf         Fuzzy finder, powers history and file pickers in the shell.
