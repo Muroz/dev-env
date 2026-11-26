@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Weekly drift check.
+
+  A template, not a usable plist: launchd does not expand $HOME or any other
+  variable, so __REPO_ROOT__ is replaced with the real checkout path when
+  install.sh writes this to ~/Library/LaunchAgents/com.dev-env.drift.plist.
+
+  A LaunchAgent, not a LaunchDaemon: an agent runs inside the logged-in user's
+  GUI session, which is what lets the notification appear. A daemon has no
+  session to post into.
+
+  StartCalendarInterval fires even with no terminal open, and launchd runs a
+  missed occurrence once the machine wakes rather than skipping it.
+
+  Manage it with:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dev-env.drift.plist
+    launchctl bootout   gui/$(id -u)/com.dev-env.drift
+    launchctl kickstart -p gui/$(id -u)/com.dev-env.drift   # run it now
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dev-env.drift</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO_ROOT__/scripts/notify-drift.sh</string>
+    </array>
+
+    <!-- Mondays at 10:00. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- The script appends its own report to ~/.dev-env/drift.log. These
+         capture anything it writes to the terminal instead, which is where a
+         crash or a missing interpreter would show up. -->
+    <key>StandardOutPath</key>
+    <string>__HOME__/.dev-env/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.dev-env/launchd.err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO_ROOT__</string>
+
+    <!-- Exit 1 means "something to report", not a failure to retry. -->
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

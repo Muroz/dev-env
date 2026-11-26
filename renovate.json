@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "America/St_Johns",
+  "schedule": [
+    "before 9am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "Tool versions in mise/config.toml. Renovate's mise manager matches this path by default. Grouped into one pull request, since both tools share the one config file.",
+      "matchManagers": [
+        "mise"
+      ],
+      "groupName": "mise tools",
+      "commitMessagePrefix": "Chore:"
+    },
+    {
+      "description": "Action versions in .github/workflows. Renovate covers these out of the box, which is why this repo has no Dependabot config: two bots would open duplicate pull requests.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions",
+      "commitMessagePrefix": "Chore:"
+    }
+  ],
+  "dependencyDashboard": true
+}

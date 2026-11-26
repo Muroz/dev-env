@@ -8,6 +8,7 @@ A centralized configuration repository for consistent development environments a
 - [Repository Structure](#repository-structure)
 - [Quick Start](#quick-start)
 - [Checking for drift](#checking-for-drift)
+- [Staying current](#staying-current)
 - [Quality gates](#quality-gates)
 - [Detailed Configuration](#detailed-configuration)
   - [Bootstrap](#bootstrap)
@@ -31,10 +32,12 @@ This repository provides:
 - **Modular shell config**: Organized zsh configuration with custom aliases and functions
 - **Consistent git workflow**: Shared git configuration with modern best practices
 - **Synchronized editor**: VS Code settings and extensions across all machines
-- **Version management**: Pinned tool versions, with nvm/pyenv or mise
+- **Version management**: Node and Bun pinned in one mise config
 - **Update automation**: Scripts to keep all machines in sync
 - **Drift detection**: `scripts/doctor.sh` reports every way a machine differs
-  from this repo, and changes nothing itself
+  from this repo, and changes nothing itself. A launchd agent runs it weekly
+  and notifies you
+- **Dependency updates**: Renovate watches the mise pins and the workflow
 
 **Important**: This repository contains configuration only, no secrets. SSH keys, API tokens, and credentials are managed separately.
 
@@ -51,6 +54,8 @@ dev-env/
 │   ├── cask-apps.txt        # Homebrew cask applications to install
 │   ├── hooks/
 │   │   └── pre-commit       # Runs check.sh before a commit
+│   ├── launchd/
+│   │   └── com.dev-env.drift.plist.template  # Weekly drift check
 │   └── lib/
 │       ├── utils.sh         # Output, prompts, JSON helpers
 │       ├── state.sh         # Records what was installed
@@ -75,10 +80,12 @@ dev-env/
 ├── scripts/
 │   ├── update-tools.sh      # Sync this machine with the repo
 │   ├── doctor.sh            # Report drift between machine and repo
+│   ├── notify-drift.sh      # Weekly report, run by launchd
 │   └── check.sh             # Quality gate for the repo itself
 ├── .github/
 │   └── workflows/
 │       └── checks.yml       # Runs check.sh on push and pull request
+├── renovate.json            # Bot config for mise pins and action versions
 ├── .gitignore               # Prevent committing sensitive data
 ├── .env.example             # Environment variables template
 └── README.md                # This file
@@ -96,56 +103,39 @@ dev-env/
    cd ~/dev-env
    ```
 
-2. **Choose your version management approach**:
-
-   **Option A: Standard Mode (Traditional)**
-   - Uses individual version managers: nvm, pyenv, bun
-   - Best for users comfortable with existing workflows
-
-   **Option B: Mise Mode (Unified)**
-   - Uses mise for all language version management
-   - Simpler, faster, single tool for Node.js, Python, and Bun
-   - Recommended for new setups
-
-3. **Preview what will be installed** (recommended):
+2. **Preview what will be installed** (recommended):
    ```bash
    chmod +x bootstrap/install.sh
-
-   # Preview standard installation
    ./bootstrap/install.sh --dry-run
-
-   # Preview with mise
-   ./bootstrap/install.sh --dry-run --use-mise
    ```
 
-4. **Set environment variables** (for git configuration):
+3. **Set your git identity**, either by copying the template:
+   ```bash
+   cp git/gitconfig.local.example ~/.gitconfig.local
+   ```
+   or by exporting the variables the installer reads:
    ```bash
    export GIT_USER_NAME="Your Name"
    export GIT_USER_EMAIL="your.email@example.com"
    ```
 
-5. **Run bootstrap script**:
-
-   **Standard Mode:**
+4. **Run the bootstrap script**:
    ```bash
    ./bootstrap/install.sh
    ```
 
-   **Mise Mode:**
-   ```bash
-   ./bootstrap/install.sh --use-mise
-   ```
-
-   The script will:
+   It will:
    - Check system dependencies
-   - Install all required tools (conditional based on mode)
-   - Create automatic backups of existing configs
-   - Report progress and any errors
-   - Display a detailed summary at completion showing:
-     - ✓ Successfully installed sections
-     - ○ Skipped sections (when using --use-mise or --dry-run)
-     - ✗ Failed sections (if any errors occurred)
-   - Provide next steps at completion
+   - Install the formulas, apps and extensions in the manifests
+   - Configure mise from `mise/config.toml`
+   - Back up any config it is about to replace
+   - Install the pre-commit hook and the weekly drift check
+   - Report a summary of installed, skipped and failed sections
+
+5. **Confirm the result**:
+   ```bash
+   ./scripts/doctor.sh
+   ```
 
 6. **Review local customizations** (optional):
    ```bash
@@ -282,7 +272,6 @@ Remove specific components only:
 
 # Switch from nvm/pyenv to mise
 ./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
-./bootstrap/install.sh --use-mise
 
 # Remove VS Code extensions
 ./bootstrap/uninstall.sh --sections "vscode_extensions"
@@ -436,6 +425,75 @@ The uninstall system includes multiple safety mechanisms:
 
 ---
 
+## Staying current
+
+Two different problems, so two different mechanisms.
+
+### The weekly drift check
+
+Whether *this machine* has fallen behind is something no CI runner can see, so
+it runs here. `install.sh` writes a launchd agent from
+`bootstrap/launchd/com.dev-env.drift.plist.template` and loads it; every Monday
+at 10:00 it runs `scripts/notify-drift.sh`, which reports:
+
+- drift between this machine and the repo (`doctor.sh`)
+- Homebrew formulas with a newer version (`brew outdated --formula`)
+- mise tools behind the pins (`mise outdated`)
+
+If anything turns up you get a macOS notification; the detail goes to
+`~/.dev-env/drift.log`. It changes nothing — everything it finds is yours to
+act on. Nothing to run by hand: launchd fires it with no terminal open, and
+runs a missed occurrence once the machine wakes rather than skipping it.
+
+See it now without waiting for Monday:
+
+```bash
+./scripts/notify-drift.sh --stdout
+```
+
+Manage the agent:
+
+```bash
+launchctl kickstart -p gui/$(id -u)/com.dev-env.drift   # run it now
+launchctl bootout gui/$(id -u)/com.dev-env.drift        # stop it
+./bootstrap/uninstall.sh --sections drift_agent         # remove it
+```
+
+Two things to expect. It is a LaunchAgent rather than a LaunchDaemon, because
+only an agent runs inside the logged-in GUI session that a notification needs.
+And macOS asks once to allow notifications from whatever host runs the
+`osascript`.
+
+### Renovate
+
+Whether the *pinned versions in this repo* have fallen behind upstream is a
+repo question, so a bot answers it. `renovate.json` configures two things:
+
+- **mise tools.** Renovate's `mise` manager matches `mise/config.toml` at its
+  default patterns, with no custom path needed. It opens a pull request when
+  Node or Bun has a newer release, grouped into one since both live in the
+  same file.
+- **Action versions.** The `github-actions` manager covers
+  `.github/workflows/`, which is how an `actions/checkout` bump arrives.
+
+Renovate needs its GitHub App installed on the repository; the config alone
+does nothing. Once it is, the Dependency Dashboard lists everything it is
+tracking.
+
+**There is deliberately no Dependabot config.** Renovate already covers
+`github-actions`, and running both would mean duplicate pull requests for the
+same version bump. `check.sh` fails if a Dependabot config appears alongside
+Renovate for that ecosystem.
+
+Note what neither bot can do: **Homebrew**. Renovate's `homebrew` manager only
+reads `Formula/*.rb` files in a tap, and nothing reads a package list or a
+Brewfile. It does not matter much, because `brew-packages.txt` and
+`cask-apps.txt` pin no versions — there is nothing in them to go stale, and
+`brew upgrade` already fetches the latest. Staleness on the *machine* is what
+the weekly check reports.
+
+---
+
 ## Quality gates
 
 `doctor.sh` checks the machine. `check.sh` checks the repo.
@@ -454,12 +512,16 @@ It runs in three or four seconds and verifies:
   `--severity=warning`. Info-level notes are left alone: they are style
   preferences, and gating on them would mean churn without a bug fixed.
 - **Manifests** — each one parses to a non-empty list, no entry contains
-  whitespace or a stray comment, and the `[CONDITIONAL]` markers actually
-  change the package set between modes.
+  whitespace or a stray comment, mise is tracked, no superseded version
+  manager is, and `mise/config.toml` pins Node.
+- **Data files** — the launchd template is a valid plist with the expected
+  label and program, both of its placeholders are ones `install.sh`
+  substitutes, and `renovate.json` is valid JSON. It also fails if a
+  Dependabot config appears alongside Renovate for the same ecosystem.
 - **Tracked files** — no identity in `git/gitconfig`, no key material
   anywhere, and nothing the global gitignore is silently hiding.
-- **Installer dry runs** — both modes of `install.sh` and `update-tools.sh`
-  exit 0 and leave the checkout byte-identical. This is the check that catches
+- **Installer dry runs** — `install.sh` and `update-tools.sh` exit 0 and
+  leave the checkout byte-identical. This is the check that catches
   an installer editing a tracked file.
 
 `--fast` skips the dry runs, which are the slow part.
@@ -503,7 +565,7 @@ The bootstrap script automates the entire setup process with robust error handli
 4. Installs oh-my-zsh (robbyrussell theme)
 5. Sets up version managers:
    - Standard mode: nvm, pyenv, bun, rust, conda
-   - Mise mode (`--use-mise`): mise (unified), rust, conda
+   - mise for Node and Bun, rustup for Rust, conda for Python
 6. Creates symlinks for shell and git configurations with automatic backups
 7. Installs VS Code extensions and copies settings
 8. Configures git with environment variables
@@ -531,8 +593,6 @@ export GIT_USER_EMAIL="your.email@example.com"
 # Skip backup creation (faster re-runs)
 ./bootstrap/install.sh --skip-backups
 
-# Use mise for version management
-./bootstrap/install.sh --use-mise
 
 # View available options
 ./bootstrap/install.sh --help
@@ -541,46 +601,20 @@ export GIT_USER_EMAIL="your.email@example.com"
 **Command-line Options**:
 - `--dry-run` - Preview changes without making modifications
 - `--skip-backups` - Skip creating backups of existing configuration files
-- `--use-mise` - Use mise for unified version management instead of nvm/pyenv/bun
 - `--help` - Display usage information and available options
 
 **Version Management Options**:
 
 The bootstrap script supports two approaches for managing programming language versions:
 
-1. **Standard Mode (default)**:
-   - Installs individual version managers: nvm (Node.js), pyenv (Python), bun
-   - Each tool is managed separately with its own commands
-   - Best for users comfortable with traditional version managers
-   - Maintains compatibility with existing workflows
-   - **Packages installed**: nvm, pyenv, poetry, tippecanoe, pmtiles
-   - **Packages skipped**: mise
+mise manages Node and Bun from `mise/config.toml`. Rust stays with rustup and
+Python stays with conda, both of which have their own installers and
+ecosystems. See [Version Management](#version-management) for why Python is
+left alone.
 
-2. **Mise Mode (`--use-mise` flag)**:
-   - Installs mise as a unified version manager for Node.js, Python, and Bun
-   - Single tool to manage all language versions
-   - Configuration in `mise/config.toml` (versions automatically activated)
-   - Uses mise commands for all version management
-   - Best for users wanting simplified, unified tooling
-   - **Packages installed**: mise, poetry, tippecanoe, pmtiles
-   - **Packages skipped**: nvm, pyenv
-   - When enabled, the script automatically:
-     - Installs mise via Homebrew
-     - Skips individual nvm, pyenv, bun installations
-     - Uncomments tool versions in `mise/config.toml`
-     - Creates symlink to global mise config (`~/.config/mise/config.toml`)
-     - Activates mise in your shell configuration
-     - Installs all configured tools (Node.js, Python, Bun)
-     - Shows installed tool versions
-
-**How the conditional installation works**:
-- The script reads `brew-packages.txt` which contains conditional markers
-- Packages marked `[CONDITIONAL: USE_MISE]` are only installed with `--use-mise`
-- Packages marked `[CONDITIONAL: !USE_MISE]` are skipped when using `--use-mise`
-- During installation, you'll see clear messages about which packages are skipped and why
-- This ensures clean, non-conflicting installations in both modes
-
-**Note**: Rust (via rustup) and Conda are installed separately in both modes as they have their own specialized installers and ecosystems.
+The manifests are read verbatim: one entry per line, blank lines and comments
+ignored. There are no conditional markers any more — there is one mode, so
+there is nothing to branch on.
 
 **Machine-specific Settings**:
 
@@ -596,14 +630,18 @@ find yourself editing the tracked `zshrc` for something true of one machine,
 it belongs in `~/.zshrc.local` instead.
 
 **Brew Packages** (`brew-packages.txt`):
-- `mise` - Unified version manager (only with `--use-mise`)
-- `nvm` - Node.js version manager (skipped with `--use-mise`)
-- `pyenv` - Python version manager (skipped with `--use-mise`)
-- `poetry` - Python dependency management (always installed)
-- `tippecanoe` - Vector tileset creation for mapping (always installed)
-- `pmtiles` - Cloud-optimized map tiles (always installed)
+- `mise` - manages the Node and Bun versions in `mise/config.toml`
+- `jq` - required: `bootstrap/lib/state.sh` records what it installed as JSON
+- `shellcheck` - required by `scripts/check.sh`
+- `poetry` - Python dependency management
+- `gh`, `git-filter-repo` - GitHub CLI and history rewriting
+- `helm`, `kind` - Kubernetes
+- `openjdk@17` - Java
+- `tippecanoe`, `pmtiles` - vector tilesets and cloud-optimized map tiles
 
-**Note**: Only explicitly installed packages are listed. Dependencies are installed automatically by Homebrew. Packages with conditional markers are installed based on the `--use-mise` flag.
+**Note**: Only explicitly installed packages are listed; Homebrew pulls in
+dependencies itself. The file also carries a commented list of candidates,
+`uv` and `ruff` among them, each saying what it would replace.
 
 **Error Handling**:
 
@@ -886,190 +924,48 @@ cat editors/vscode/extensions.txt | grep -v '^#' | xargs -L 1 code --install-ext
 
 **File**: `mise/config.toml`
 
-The repository supports two version management approaches. Choose the one that fits your workflow:
+mise manages Node and Bun, from the versions pinned in that file. It is
+symlinked to `~/.config/mise/config.toml`, activated by `shell/zshrc`, and
+switches versions per directory when a project has its own `.mise.toml`,
+`.nvmrc` or `.python-version`.
 
----
+There used to be a `--use-mise` flag choosing between mise and nvm/pyenv. That
+second path is gone. One way of setting up a machine is the entire point of
+this repo, and the dual mode was where the bug lived that reinstalled nvm and
+pyenv onto a mise machine.
 
-#### Comparison Table
-
-| Feature | Standard Mode | Mise Mode |
-|---------|--------------|-----------|
-| **Installation** | `./bootstrap/install.sh` | `./bootstrap/install.sh --use-mise` |
-| **Node.js** | nvm | mise |
-| **Python** | pyenv | mise |
-| **Bun** | Standalone | mise |
-| **Rust** | rustup (both modes) | rustup (both modes) |
-| **Conda** | Conda (both modes) | Conda (both modes) |
-| **Commands** | `nvm use`, `pyenv shell`, etc. | `mise use`, `mise install` |
-| **Config File** | Multiple (.nvmrc, .python-version) | Single (.mise.toml) |
-| **Auto-switching** | Limited | Yes, per directory |
-| **Speed** | Slower (shell wrappers) | Faster (native binary) |
-
----
-
-#### Standard Mode (Default)
-
-Uses **individual version managers**:
-- **nvm** for Node.js
-- **pyenv** for Python
-- **bun** standalone
-- **cargo/rustup** for Rust
-- **conda** for data science environments
-
-Versions are whatever each manager has installed. Run `./scripts/doctor.sh` to
-print what this machine is on; `mise/config.toml` records the versions the two
-laptops are meant to share.
-
-**Installation**:
 ```bash
-./bootstrap/install.sh
+mise current          # what is active here
+mise install          # install what config.toml pins
+mise outdated         # what is behind the pins
 ```
 
-**Usage Examples**:
+The installer does not rewrite `mise/config.toml`. Its versions are used as
+committed, which keeps the checkout clean — a dirty checkout would stop the
+`git pull` in `update-tools.sh`.
+
+#### What mise does not manage
+
+| Tool | Managed by | Why |
+|------|-----------|-----|
+| Rust | rustup | It manages its own toolchains and updates in place. |
+| Python | conda | conda already provides it at `/opt/anaconda3`. Both tools rewrite `PATH` on activation, so handing Python to mise would put a second interpreter ahead of conda's for no gain. |
+
+pyenv was removed rather than migrated. It was set to `system` and managing
+nothing: Python came from conda the whole time.
+
+#### Leftovers
+
+nvm, pyenv and a standalone bun put shims on `PATH` ahead of mise, so a stale
+one wins silently. `doctor.sh` reports any that are still present, and they
+come off with:
+
 ```bash
-# Node.js
-nvm install 20.11.0
-nvm use 20.11.0
-
-# Python
-pyenv install 3.11.0
-pyenv global 3.11.0
-
-# Bun
-bun upgrade
+./bootstrap/uninstall.sh --sections nvm,pyenv,bun
 ```
 
-**Best for**:
-- Users familiar with traditional version managers
-- Projects with existing `.nvmrc` or `.python-version` files
-- Teams using standard tooling
-
----
-
-#### Mise Mode (Unified Alternative)
-
-Uses **mise** as a unified version manager that replaces nvm, pyenv, and bun with a single tool.
-
-**Automatic Setup (Recommended)**:
-```bash
-./bootstrap/install.sh --use-mise
-```
-
-This automatically:
-1. Installs mise via Homebrew
-2. Skips individual nvm/pyenv/bun installations
-3. Symlinks `~/.config/mise/config.toml` to this repo's `mise/config.toml`
-4. Installs the tools that config pins
-5. Shows installed tool versions
-
-The installer does not edit `mise/config.toml`. Its versions are used exactly
-as committed, which keeps the checkout clean — a dirty checkout would stop the
-`git pull` in `update-tools.sh`. `shell/zshrc` activates mise by itself
-whenever `~/.config/mise/config.toml` exists, so nothing patches your shell
-config either.
-
-**Usage Examples**:
-```bash
-# View installed tools
-mise list
-
-# Install a different version
-mise install node@20.11.0
-mise use node@20.11.0
-
-# Update all tools
-mise upgrade
-
-# See which version is active
-mise current
-```
-
-**Configuration**:
-Global config at `~/.config/mise/config.toml`, symlinked to this repo's
-`mise/config.toml`:
-```toml
-[tools]
-node = "22"
-python = "3.12"
-bun = "1.4"
-```
-
-Changing a version here and running `mise install` on each laptop is how both
-machines move together. `mise/config.toml` also lists the current upstream
-versions as upgrade targets, so moving to Node 26 or Python 3.14 stays a
-deliberate edit rather than something an install does behind your back.
-
-**Per-Project Versions**:
-Create `.mise.toml` in any project to override global versions:
-```toml
-[tools]
-node = "20.11.0"
-python = "3.11"
-bun = "1.1.0"
-```
-
-mise will automatically switch to these versions when you `cd` into the project directory.
-
-**Benefits of Mise**:
-- Single tool for all language versions
-- Significantly faster than nvm/pyenv (native binary vs shell wrappers)
-- Project-specific `.mise.toml` overrides with auto-switching
-- Automatic version switching per directory
-- Consistent interface across all tools
-- Better integration with modern development workflows
-- Can still read `.nvmrc` and `.python-version` files
-
-**Best for**:
-- New setups or fresh installations
-- Users wanting simplified, unified tooling
-- Projects using multiple language runtimes
-- Teams adopting modern development practices
-
----
-
-#### Manual Migration (Standard → Mise)
-
-If you're already using standard mode and want to migrate:
-
-1. **Install mise**:
-   ```bash
-   brew install mise
-   ```
-
-2. **Edit shell configuration**:
-   ```bash
-   code ~/dev-env/shell/zshrc
-   # Uncomment the mise activation section
-   # Optionally comment out nvm/pyenv sections
-   ```
-
-3. **Activate tool versions**:
-   ```bash
-   code ~/dev-env/mise/config.toml
-   # Uncomment tool version lines (node, python, bun)
-   ```
-
-4. **Create symlink and install tools**:
-   ```bash
-   mkdir -p ~/.config/mise
-   ln -sf ~/dev-env/mise/config.toml ~/.config/mise/config.toml
-   mise install
-   ```
-
-5. **Reload shell**:
-   ```bash
-   source ~/.zshrc
-   ```
-
-6. **Verify installation**:
-   ```bash
-   mise list
-   node --version
-   python --version
-   bun --version
-   ```
-
-**Note**: You can keep both systems installed, but make sure only one is active in your shell at a time.
+Those sections remain in the uninstaller for exactly this reason, although
+nothing installs them any more.
 
 ---
 
@@ -1466,44 +1362,26 @@ source ~/.zshrc
 mise current
 ```
 
-### Conflicting package installations
+### Leftover nvm, pyenv or bun after migrating to mise
 
-**Problem**: Both mise and nvm/pyenv are installed after running bootstrap
+**Problem**: `node` or `bun` is not the version `mise current` reports
 
-**Solution**:
-This can happen if you ran the script without `--use-mise` first, then with `--use-mise`.
-
-```bash
-# To clean up and use mise:
-brew uninstall nvm pyenv
-rm -rf ~/.nvm ~/.pyenv
-
-# Re-run bootstrap with mise
-./bootstrap/install.sh --use-mise --skip-backups
-
-# Or to clean up and use standard mode:
-brew uninstall mise
-rm -rf ~/.config/mise
-
-# Re-run bootstrap without mise flag
-./bootstrap/install.sh --skip-backups
-```
-
-### Dry-run shows incorrect packages
-
-**Problem**: Dry-run output doesn't match expected packages for chosen mode
+**Cause**: nvm, pyenv and a standalone bun put shims on `PATH` ahead of mise,
+so a leftover install wins silently.
 
 **Solution**:
-Make sure you're using the correct flags:
 ```bash
-# For standard mode preview
-./bootstrap/install.sh --dry-run
-
-# For mise mode preview
-./bootstrap/install.sh --dry-run --use-mise
+./scripts/doctor.sh                                  # names what is left
+./bootstrap/uninstall.sh --sections nvm,pyenv,bun    # removes it
 ```
 
-The output should clearly show which packages are skipped and why.
+Add `--remove-data` to delete the downloaded Node and Python versions too.
+Check what won afterwards:
+
+```bash
+mise current
+command -v node bun
+```
 
 ---
 
