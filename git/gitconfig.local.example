@@ -1,0 +1,24 @@
+# Machine-local git configuration.
+#
+# Copy to ~/.gitconfig.local. The [include] at the end of git/gitconfig pulls
+# it in, and it is not tracked, so this is where your identity belongs.
+#
+# It must not go in git/gitconfig: that file is symlinked to ~/.gitconfig and
+# git writes through the symlink, so an identity set with
+# `git config --global` would land in the tracked file and be committed.
+#
+# To read a value back, use `git config --get user.email`. The --global form
+# does not follow includes.
+
+[user]
+    name = Your Name
+    email = your.email@example.com
+
+# Per-machine settings can go here too, for example a different signing key
+# or a work identity for one checkout:
+#
+# [user]
+#     signingkey = ABCD1234
+#
+# [includeIf "gitdir:~/work/"]
+#     path = ~/.gitconfig.work

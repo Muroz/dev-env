@@ -24,10 +24,11 @@ STATE_DIR="$HOME/.dev-env"
 STATE_FILE="$STATE_DIR/state.json"
 STATE_VERSION="1.0.0"
 
-# Source utils if not already loaded
+# Source utils if not already loaded. Uses its own variable: assigning
+# SCRIPT_DIR here would overwrite the caller's.
 if ! command -v info &>/dev/null; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    source "$SCRIPT_DIR/utils.sh"
+    _STATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "$_STATE_LIB_DIR/utils.sh"
 fi
 
 # ============================================================================
@@ -35,6 +36,11 @@ fi
 # ============================================================================
 
 init_state_file() {
+    # A dry run must not touch recorded state.
+    if [ "${DRY_RUN:-false}" = true ]; then
+        return 0
+    fi
+
     # Create state directory
     if [ ! -d "$STATE_DIR" ]; then
         mkdir -p "$STATE_DIR" || {
@@ -69,6 +75,11 @@ EOF
 # ============================================================================
 
 record_installation_start() {
+    # A dry run must not touch recorded state.
+    if [ "${DRY_RUN:-false}" = true ]; then
+        return 0
+    fi
+
     local mode="${1:-standard}"  # "standard" or "mise"
 
     if [ ! -f "$STATE_FILE" ]; then
@@ -80,7 +91,8 @@ record_installation_start() {
         return 1
     fi
 
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     jq ".installation.date = \"$timestamp\" | .installation.mode = \"$mode\"" \
         "$STATE_FILE" > "$STATE_FILE.tmp" && \
@@ -88,8 +100,17 @@ record_installation_start() {
 }
 
 record_section_installed() {
+    # A dry run must not touch recorded state.
+    if [ "${DRY_RUN:-false}" = true ]; then
+        return 0
+    fi
+
     local section="$1"
-    local metadata="${2:-{}}"  # JSON object with section-specific data
+    # Note: do not write ${2:-{}} here. Bash reads that as a default of "{"
+    # followed by a literal "}", so a metadata argument gets a stray brace
+    # appended and every jq call on it fails.
+    local metadata="${2:-}"
+    [ -z "$metadata" ] && metadata='{}'
 
     if [ ! -f "$STATE_FILE" ]; then
         init_state_file
@@ -100,10 +121,12 @@ record_section_installed() {
         return 1
     fi
 
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Merge metadata with installed flag and timestamp
-    local section_data=$(echo "$metadata" | jq ". + {installed: true, date: \"$timestamp\"}")
+    local section_data
+    section_data=$(echo "$metadata" | jq ". + {installed: true, date: \"$timestamp\"}")
 
     # Update state file
     jq ".sections.\"$section\" = $section_data" \
@@ -112,6 +135,11 @@ record_section_installed() {
 }
 
 record_section_skipped() {
+    # A dry run must not touch recorded state.
+    if [ "${DRY_RUN:-false}" = true ]; then
+        return 0
+    fi
+
     local section="$1"
     local reason="${2:-}"
 
@@ -131,6 +159,11 @@ record_section_skipped() {
 }
 
 record_section_uninstalled() {
+    # A dry run must not touch recorded state.
+    if [ "${DRY_RUN:-false}" = true ]; then
+        return 0
+    fi
+
     local section="$1"
 
     if [ ! -f "$STATE_FILE" ]; then
@@ -152,6 +185,11 @@ record_section_uninstalled() {
 # ============================================================================
 
 record_backup() {
+    # A dry run must not touch recorded state.
+    if [ "${DRY_RUN:-false}" = true ]; then
+        return 0
+    fi
+
     local backup_dir="$1"
 
     if [ ! -f "$STATE_FILE" ]; then
@@ -162,10 +200,12 @@ record_backup() {
         return 1
     fi
 
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Get list of files in backup
-    local files=$(ls -1 "$backup_dir" 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0))')
+    local files
+    files=$(ls -1 "$backup_dir" 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0))')
 
     local backup_entry="{\"date\": \"$timestamp\", \"path\": \"$backup_dir\", \"files\": $files}"
 
@@ -362,7 +402,8 @@ rebuild_state_from_system() {
 
     init_state_file
 
-    local detected_sections=$(detect_installed_sections)
+    local detected_sections
+    detected_sections=$(detect_installed_sections)
     local mode="unknown"
 
     # Determine installation mode
@@ -374,7 +415,8 @@ rebuild_state_from_system() {
 
     # Record installation start (with detected mode)
     if has_jq; then
-        local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        local timestamp
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq ".installation.date = \"$timestamp\" | .installation.mode = \"$mode\"" \
             "$STATE_FILE" > "$STATE_FILE.tmp" && \
             mv "$STATE_FILE.tmp" "$STATE_FILE"
@@ -423,7 +465,8 @@ import_state() {
 
 reset_state() {
     if [ -f "$STATE_FILE" ]; then
-        local backup="${STATE_FILE}.backup-$(date +%Y%m%d_%H%M%S)"
+        local backup
+        backup="${STATE_FILE}.backup-$(date +%Y%m%d_%H%M%S)"
         mv "$STATE_FILE" "$backup"
         info "Previous state backed up to: $backup"
     fi
@@ -443,7 +486,8 @@ check_state_drift() {
     fi
 
     local drifted=false
-    local installed_sections=$(list_installed_sections)
+    local installed_sections
+    installed_sections=$(list_installed_sections)
 
     echo "Checking for drift between state file and actual system..."
     echo ""
@@ -455,7 +499,8 @@ check_state_drift() {
         fi
     done
 
-    local detected_sections=$(detect_installed_sections)
+    local detected_sections
+    detected_sections=$(detect_installed_sections)
     for section in $detected_sections; do
         if ! section_is_installed "$section"; then
             warning "Found on system but not in state: $section"

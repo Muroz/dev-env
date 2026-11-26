@@ -55,10 +55,9 @@
 set -o pipefail  # Catch errors in pipes
 # Note: Not using 'set -e' to allow graceful handling of individual failures
 
-# Source state tracking library
-if [ -f "$SCRIPT_DIR/lib/state.sh" ]; then
-    source "$SCRIPT_DIR/lib/state.sh"
-fi
+# Script directory. Must be resolved before anything that sources from it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Colors for output
 RED='\033[0;31m'
@@ -67,7 +66,23 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Script directory
+# Source state tracking library
+if [ -f "$SCRIPT_DIR/lib/state.sh" ]; then
+    source "$SCRIPT_DIR/lib/state.sh"
+else
+    echo "[ERROR] Missing $SCRIPT_DIR/lib/state.sh" >&2
+    exit 1
+fi
+
+# Source manifest parsing, shared with scripts/update-tools.sh
+if [ -f "$SCRIPT_DIR/lib/packages.sh" ]; then
+    source "$SCRIPT_DIR/lib/packages.sh"
+else
+    echo "[ERROR] Missing $SCRIPT_DIR/lib/packages.sh" >&2
+    exit 1
+fi
+
+# Re-assert, in case a sourced file assigned either name.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
@@ -221,91 +236,56 @@ install_homebrew() {
 # 2. Brew Packages Installation
 # ============================================================================
 
-# Helper function to check if a package should be installed based on conditions
-should_install_package() {
-    local package="$1"
-    local prev_line="$2"
-
-    # Check for conditional markers in the previous comment line
-    if [[ "$prev_line" =~ \[CONDITIONAL:\ USE_MISE\] ]]; then
-        # Only install if USE_MISE is true
-        [ "$USE_MISE" = true ] && return 0 || return 1
-    elif [[ "$prev_line" =~ \[CONDITIONAL:\ !USE_MISE\] ]]; then
-        # Only install if USE_MISE is false
-        [ "$USE_MISE" = false ] && return 0 || return 1
-    fi
-
-    # No condition found, always install
-    return 0
-}
-
 install_brew_packages() {
     info "Installing Homebrew packages..."
 
-    if [ ! -f "$REPO_ROOT/bootstrap/brew-packages.txt" ]; then
+    local manifest="$REPO_ROOT/bootstrap/brew-packages.txt"
+
+    if [ ! -f "$manifest" ]; then
         warning "brew-packages.txt not found"
         return 1
     fi
 
     local package_count=0
     local installed_count=0
-    local skipped_count=0
     local failed_packages=()
-    local prev_line=""
+    local package
 
-    while IFS= read -r line; do
-        # Track previous line for conditional checking
-        if [[ "$line" =~ ^# ]] || [[ -z "$line" ]]; then
-            prev_line="$line"
-            continue
-        fi
-
-        local package="$line"
-
-        # Check if package should be installed based on conditions
-        if ! should_install_package "$package" "$prev_line"; then
-            if [[ "$prev_line" =~ \[CONDITIONAL:\ USE_MISE\] ]]; then
-                info "  ⊘ $package (skipped - not using mise)"
-            else
-                info "  ⊘ $package (skipped - using mise instead)"
-            fi
-            ((skipped_count++))
-            prev_line="$line"
-            continue
-        fi
-
+    # read_manifest applies the [CONDITIONAL: ...] markers for this mode.
+    while IFS= read -r package; do
         ((package_count++))
 
-        if brew list --formula "$package" &>/dev/null; then
+        if formula_installed "$package"; then
             info "  ✓ $package already installed"
             ((installed_count++))
+        elif [ "$DRY_RUN" = true ]; then
+            info "[DRY RUN] Would install $package"
         else
-            if [ "$DRY_RUN" = false ]; then
-                info "  Installing $package..."
-                if brew install "$package" 2>&1 | tee /tmp/brew-install-$$.log; then
-                    ((installed_count++))
-                else
-                    warning "Failed to install $package"
-                    failed_packages+=("$package")
-                fi
+            info "  Installing $package..."
+            if brew install "$package"; then
+                ((installed_count++))
             else
-                info "[DRY RUN] Would install $package"
+                warning "Failed to install $package"
+                failed_packages+=("$package")
             fi
         fi
+    done < <(read_manifest "$manifest" "$USE_MISE")
 
-        prev_line="$line"
-    done < "$REPO_ROOT/bootstrap/brew-packages.txt"
+    # Report what this mode deliberately left out.
+    local skipped
+    skipped=$(read_manifest_skipped "$manifest" "$USE_MISE")
+    if [ -n "$skipped" ]; then
+        while IFS= read -r package; do
+            if [ "$USE_MISE" = true ]; then
+                info "  ⊘ $package (skipped - using mise instead)"
+            else
+                info "  ⊘ $package (skipped - not using mise)"
+            fi
+        done <<< "$skipped"
+    fi
 
     if [ ${#failed_packages[@]} -ne 0 ]; then
         warning "Failed to install: ${failed_packages[*]}"
-    fi
-
-    if [ $skipped_count -gt 0 ]; then
-        if [ "$USE_MISE" = true ]; then
-            info "Skipped $skipped_count package(s) (using mise for version management)"
-        else
-            info "Skipped $skipped_count package(s) (mise not enabled)"
-        fi
     fi
 
     success "Brew packages: $installed_count/$package_count installed"
@@ -318,44 +298,52 @@ install_brew_packages() {
 install_brew_casks() {
     info "Installing Homebrew casks..."
 
-    if [ ! -f "$REPO_ROOT/bootstrap/cask-apps.txt" ]; then
+    local manifest="$REPO_ROOT/bootstrap/cask-apps.txt"
+
+    if [ ! -f "$manifest" ]; then
         warning "cask-apps.txt not found"
-        return 1
+        return 0
     fi
 
     local cask_count=0
     local installed_count=0
     local failed_casks=()
+    local cask
 
     while IFS= read -r cask; do
-        # Skip empty lines and comments
-        [[ -z "$cask" || "$cask" =~ ^# ]] && continue
-
         ((cask_count++))
 
-        if brew list --cask "$cask" &>/dev/null; then
+        if cask_installed "$cask"; then
             info "  ✓ $cask already installed"
             ((installed_count++))
-        else
-            if [ "$DRY_RUN" = false ]; then
-                info "  Installing $cask..."
-                if brew install --cask "$cask"; then
-                    ((installed_count++))
-                else
-                    warning "Failed to install $cask"
-                    failed_casks+=("$cask")
-                fi
-            else
-                info "[DRY RUN] Would install $cask"
-            fi
+            continue
         fi
-    done < "$REPO_ROOT/bootstrap/cask-apps.txt"
+
+        if [ "$DRY_RUN" = true ]; then
+            info "[DRY RUN] Would install $cask"
+            continue
+        fi
+
+        # --adopt takes over an app already sitting in /Applications from a
+        # manual download, instead of refusing to install or overwriting it.
+        info "  Installing $cask..."
+        if brew install --cask --adopt "$cask"; then
+            ((installed_count++))
+        else
+            warning "Failed to install $cask"
+            failed_casks+=("$cask")
+        fi
+    done < <(read_manifest "$manifest" "$USE_MISE")
 
     if [ ${#failed_casks[@]} -ne 0 ]; then
         warning "Failed to install casks: ${failed_casks[*]}"
     fi
 
     success "Brew casks: $installed_count/$cask_count installed"
+
+    # Self-updating apps keep themselves current; brew only interferes if
+    # asked to. Say so once, where someone setting up a machine will see it.
+    info "Casks are bootstrap only: never run 'brew upgrade --cask --greedy'"
 }
 
 # ============================================================================
@@ -410,7 +398,7 @@ setup_mise_config() {
     fi
 
     if [ "$DRY_RUN" = true ]; then
-        info "[DRY RUN] Would uncomment tool versions in mise config"
+        info "[DRY RUN] Would use tool versions from $config_file as committed"
         info "[DRY RUN] Would create symlink: $global_config → $config_file"
         info "[DRY RUN] Would run: mise install"
         return 0
@@ -423,20 +411,13 @@ setup_mise_config() {
         return 1
     fi
 
-    # Uncomment tool versions in the config file
-    if grep -q "^# node = " "$config_file"; then
-        info "Activating tool versions in mise config..."
-
-        # Create a backup
-        cp "$config_file" "$config_file.bak"
-
-        # Uncomment the tool versions
-        sed -i.tmp 's/^# node = /node = /' "$config_file"
-        sed -i.tmp 's/^# python = /python = /' "$config_file"
-        sed -i.tmp 's/^# bun = /bun = /' "$config_file"
-
-        rm -f "$config_file.tmp"
-        success "Tool versions activated in config"
+    # The config carries live versions and is used as committed. Nothing here
+    # rewrites it: editing a tracked file during install leaves the repo dirty,
+    # which then breaks the `git pull` in scripts/update-tools.sh.
+    if ! grep -qE '^[a-z]+ = ' "$config_file"; then
+        warning "No tool versions set in $config_file"
+        info "Add versions under [tools], then re-run with --use-mise"
+        return 1
     fi
 
     # Create mise config directory and symlink
@@ -594,7 +575,8 @@ install_conda() {
 create_symlinks() {
     info "Creating configuration symlinks..."
 
-    local backup_dir="$HOME/.dotfiles-backup-$(date +%Y%m%d_%H%M%S)"
+    local backup_dir
+    backup_dir="$HOME/.dotfiles-backup-$(date +%Y%m%d_%H%M%S)"
 
     if [ "$SKIP_BACKUPS" = false ] && [ "$DRY_RUN" = false ]; then
         mkdir -p "$backup_dir"
@@ -640,6 +622,36 @@ create_symlinks() {
             return 1
         fi
     }
+
+    # Rescue the git identity before ~/.gitconfig is replaced. It is about to
+    # become a symlink into the repo, and git writes through a symlink, so the
+    # identity has to live in the untracked ~/.gitconfig.local instead. Doing
+    # it here rather than in configure_git keeps it safe whatever the order.
+    preserve_git_identity() {
+        local local_config="$HOME/.gitconfig.local"
+        local existing="$HOME/.gitconfig"
+
+        # Already moved out, or nothing to move.
+        [ -f "$local_config" ] && return 0
+        [ -f "$existing" ] && [ ! -L "$existing" ] || return 0
+
+        local name email
+        name=$(git config --file "$existing" --get user.name 2>/dev/null)
+        email=$(git config --file "$existing" --get user.email 2>/dev/null)
+
+        [ -n "$name" ] || [ -n "$email" ] || return 0
+
+        if [ "$DRY_RUN" = true ]; then
+            info "[DRY RUN] Would copy the git identity to $local_config"
+            return 0
+        fi
+
+        [ -n "$name" ] && git config --file "$local_config" user.name "$name"
+        [ -n "$email" ] && git config --file "$local_config" user.email "$email"
+        success "Preserved git identity in $local_config"
+    }
+
+    preserve_git_identity
 
     # Create symlinks
     create_link "$REPO_ROOT/shell/zshrc" "$HOME/.zshrc" ".zshrc"
@@ -707,7 +719,7 @@ install_vscode_extensions() {
                 info "[DRY RUN] Would install $extension"
             fi
         fi
-    done < "$REPO_ROOT/editors/vscode/extensions.txt"
+    done < <(read_manifest "$REPO_ROOT/editors/vscode/extensions.txt" "$USE_MISE")
 
     if [ ${#failed_extensions[@]} -ne 0 ]; then
         warning "Failed to install extensions: ${failed_extensions[*]}"
@@ -715,20 +727,46 @@ install_vscode_extensions() {
 
     success "VS Code extensions: $installed_count/$ext_count installed"
 
-    # Copy VS Code settings
+    # Copy VS Code settings. Anything already there is backed up first: these
+    # are hand-edited files and overwriting one without a copy loses work.
     local vscode_user_dir="$HOME/Library/Application Support/Code/User"
-    if [ -d "$vscode_user_dir" ]; then
-        if [ "$DRY_RUN" = false ]; then
-            info "Copying VS Code settings..."
-            cp "$REPO_ROOT/editors/vscode/settings.json" "$vscode_user_dir/settings.json"
-            cp "$REPO_ROOT/editors/vscode/keybindings.json" "$vscode_user_dir/keybindings.json"
-            success "VS Code settings copied"
-        else
-            info "[DRY RUN] Would copy VS Code settings"
-        fi
-    else
+
+    if [ ! -d "$vscode_user_dir" ]; then
         warning "VS Code user directory not found. Settings not copied."
+        return 0
     fi
+
+    local file
+    for file in settings.json keybindings.json; do
+        local src="$REPO_ROOT/editors/vscode/$file"
+        local dest="$vscode_user_dir/$file"
+
+        [ -f "$src" ] || continue
+
+        if [ -f "$dest" ] && diff -q "$src" "$dest" >/dev/null 2>&1; then
+            info "  ✓ $file already matches the repo"
+            continue
+        fi
+
+        if [ "$DRY_RUN" = true ]; then
+            if [ -f "$dest" ]; then
+                info "[DRY RUN] Would back up and replace $file"
+            else
+                info "[DRY RUN] Would install $file"
+            fi
+            continue
+        fi
+
+        if [ -f "$dest" ]; then
+            cp "$dest" "$dest.backup-$(date +%Y%m%d_%H%M%S)"
+            info "  Backed up existing $file"
+        fi
+
+        cp "$src" "$dest"
+        info "  Installed $file"
+    done
+
+    success "VS Code settings in place"
 }
 
 # ============================================================================
@@ -738,28 +776,91 @@ install_vscode_extensions() {
 configure_git() {
     info "Configuring Git..."
 
-    if [ -z "$GIT_USER_NAME" ] || [ -z "$GIT_USER_EMAIL" ]; then
-        warning "GIT_USER_NAME and GIT_USER_EMAIL environment variables not set"
-        info "Git user identity not configured. Please run:"
-        info "  export GIT_USER_NAME=\"Your Name\""
-        info "  export GIT_USER_EMAIL=\"your.email@example.com\""
-        info "  git config --global user.name \"\$GIT_USER_NAME\""
-        info "  git config --global user.email \"\$GIT_USER_EMAIL\""
+    # Identity lives in ~/.gitconfig.local, pulled in by the [include] at the
+    # end of git/gitconfig. It must not be written with `git config --global`:
+    # ~/.gitconfig is a symlink into the repo and git writes through it, so
+    # the address would land in a tracked file.
+    local local_config="$HOME/.gitconfig.local"
+
+    # `git config --get` reads includes; the --global form does not.
+    local existing_name existing_email
+    existing_name=$(git config --get user.name 2>/dev/null)
+    existing_email=$(git config --get user.email 2>/dev/null)
+
+    if [ -z "$GIT_USER_NAME" ] && [ -z "$GIT_USER_EMAIL" ]; then
+        if [ -n "$existing_name" ] && [ -n "$existing_email" ]; then
+            if [ -f "$local_config" ]; then
+                success "Git user already configured: $existing_name <$existing_email>"
+                return 0
+            fi
+
+            # Identity is set, but in a file about to become a symlink into
+            # the repo. Move it out before that can commit it.
+            warning "Git identity is not yet in $local_config"
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would copy the identity to $local_config"
+                return 0
+            fi
+
+            GIT_USER_NAME="$existing_name"
+            GIT_USER_EMAIL="$existing_email"
+            info "Moving the existing identity to $local_config"
+        else
+            warning "GIT_USER_NAME and GIT_USER_EMAIL environment variables not set"
+            info "Git user identity not configured. Either:"
+            info "  cp $REPO_ROOT/git/gitconfig.local.example $local_config"
+            info "  \$EDITOR $local_config"
+            info "or set the variables and re-run:"
+            info "  export GIT_USER_NAME=\"Your Name\""
+            info "  export GIT_USER_EMAIL=\"your.email@example.com\""
+            return 0
+        fi
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would write $local_config for $GIT_USER_NAME <$GIT_USER_EMAIL>"
         return 0
     fi
 
-    if [ "$DRY_RUN" = false ]; then
-        git config --global user.name "$GIT_USER_NAME"
-        git config --global user.email "$GIT_USER_EMAIL"
-        success "Git user configured: $GIT_USER_NAME <$GIT_USER_EMAIL>"
-    else
-        info "[DRY RUN] Would configure git user: $GIT_USER_NAME <$GIT_USER_EMAIL>"
+    if [ -f "$local_config" ]; then
+        cp "$local_config" "$local_config.backup-$(date +%Y%m%d_%H%M%S)"
     fi
+
+    # Written with git itself, against that file, so nothing touches
+    # ~/.gitconfig.
+    git config --file "$local_config" user.name "$GIT_USER_NAME"
+    git config --file "$local_config" user.email "$GIT_USER_EMAIL"
+    success "Git user configured in $local_config"
 }
 
 # ============================================================================
 # 9. Final Setup
 # ============================================================================
+
+# Point this checkout's pre-commit hook at the version in the repo, so the
+# quality gate runs before a commit here. Only affects the dev-env checkout.
+install_git_hooks() {
+    local hook_source="$REPO_ROOT/bootstrap/hooks/pre-commit"
+    local hook_dir="$REPO_ROOT/.git/hooks"
+    local hook_target="$hook_dir/pre-commit"
+
+    [ -f "$hook_source" ] || return 0
+
+    # Not a git checkout, or a worktree where .git is a file.
+    [ -d "$hook_dir" ] || return 0
+
+    if [ -L "$hook_target" ] || [ ! -e "$hook_target" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            info "[DRY RUN] Would link the pre-commit hook"
+            return 0
+        fi
+        ln -sfn "$hook_source" "$hook_target"
+        success "Installed the pre-commit hook (skip once with --no-verify)"
+    else
+        # Someone wrote their own hook; leave it.
+        info "Kept the existing pre-commit hook in this checkout"
+    fi
+}
 
 final_setup() {
     info "Running final setup..."
@@ -767,53 +868,31 @@ final_setup() {
     # Create a local shell config file for user-specific customizations
     local local_zshrc="$HOME/.zshrc.local"
 
+    install_git_hooks
+
+    # Nothing here edits ~/.zshrc. It is a symlink into the repo, so sed -i or
+    # an append would rewrite the tracked file and leave the checkout dirty.
+    # shell/zshrc already sources ~/.zshrc.local and already activates mise
+    # whenever ~/.config/mise/config.toml exists, so no patching is needed.
     if [ "$DRY_RUN" = false ]; then
         if [ ! -f "$local_zshrc" ]; then
-            cat > "$local_zshrc" << 'EOF'
-# Local zsh configuration
-# This file is for machine-specific settings and is not tracked in git
-
-# Dev environment location
-export DOTFILES_DIR="$HOME/dev-env"
-
-# Add your local customizations below
-# Example:
-# export PATH="$HOME/custom/bin:$PATH"
-# alias myalias="my command"
-
-EOF
-            success "Created $local_zshrc for local customizations"
-        fi
-
-        # Ensure local config is sourced in main zshrc if not already
-        if [ -f "$HOME/.zshrc" ] && ! grep -q ".zshrc.local" "$HOME/.zshrc"; then
-            echo "" >> "$HOME/.zshrc"
-            echo "# Source local configuration" >> "$HOME/.zshrc"
-            echo "[ -f ~/.zshrc.local ] && source ~/.zshrc.local" >> "$HOME/.zshrc"
-        fi
-
-        # If using mise, activate it in zshrc
-        if [ "$USE_MISE" = true ] && [ -f "$HOME/.zshrc" ]; then
-            if ! grep -q "mise activate" "$HOME/.zshrc"; then
-                info "Activating mise in shell configuration..."
-                # Comment out individual version managers
-                sed -i.bak 's/^export NVM_DIR=/# export NVM_DIR=/' "$HOME/.zshrc" 2>/dev/null || true
-                sed -i.bak 's/^eval "$(pyenv init/# eval "$(pyenv init/' "$HOME/.zshrc" 2>/dev/null || true
-
-                # Uncomment mise section
-                sed -i.bak 's/^# if command -v mise/if command -v mise/' "$HOME/.zshrc" 2>/dev/null || true
-                sed -i.bak 's/^#   eval "$(mise activate/  eval "$(mise activate/' "$HOME/.zshrc" 2>/dev/null || true
-                sed -i.bak 's/^# fi  # mise/fi  # mise/' "$HOME/.zshrc" 2>/dev/null || true
-
-                rm -f "$HOME/.zshrc.bak"
-                success "mise activated in shell configuration"
+            if [ -f "$REPO_ROOT/shell/zshrc.local.example" ]; then
+                cp "$REPO_ROOT/shell/zshrc.local.example" "$local_zshrc"
+            else
+                printf '%s\n' \
+                    '#!/bin/zsh' \
+                    '# Machine-specific shell configuration, sourced last by shell/zshrc.' \
+                    '# Not tracked in git.' \
+                    '' \
+                    '# export PATH="$HOME/custom/bin:$PATH"' \
+                    > "$local_zshrc"
             fi
+            success "Created $local_zshrc for machine-specific settings"
+        else
+            info "Kept existing $local_zshrc"
         fi
     else
         info "[DRY RUN] Would create $local_zshrc"
-        if [ "$USE_MISE" = true ]; then
-            info "[DRY RUN] Would activate mise in shell configuration"
-        fi
     fi
 
     echo ""
@@ -829,7 +908,8 @@ EOF
     info "Next steps:"
     echo ""
 
-    if [ -z "$GIT_USER_NAME" ] || [ -z "$GIT_USER_EMAIL" ]; then
+    if [ -z "$(git config --get user.name 2>/dev/null)" ] || \
+       [ -z "$(git config --get user.email 2>/dev/null)" ]; then
         echo "  1. Configure Git user identity:"
         echo "     export GIT_USER_NAME=\"Your Name\""
         echo "     export GIT_USER_EMAIL=\"your.email@example.com\""
@@ -874,7 +954,7 @@ main() {
     echo ""
 
     if [ "$DRY_RUN" = true ]; then
-        warning "DRY RUN MODE - No changes will be made"
+        echo -e "${YELLOW}[DRY RUN]${NC} No changes will be made"
         echo ""
     fi
 
@@ -1019,7 +1099,8 @@ EOF
 )
             fi
 
-            local backup_dir=$(ls -1d "$HOME/.dotfiles-backup-"* 2>/dev/null | tail -1)
+            local backup_dir
+            backup_dir=$(ls -1d "$HOME/.dotfiles-backup-"* 2>/dev/null | tail -1)
             if [ -n "$backup_dir" ]; then
                 record_section_installed "symlinks" "{\"links\": $links, \"backup_dir\": \"$backup_dir\"}"
                 record_backup "$backup_dir"
@@ -1034,7 +1115,8 @@ EOF
     if install_vscode_extensions; then
         SUCCESSFUL_SECTIONS+=("vscode_extensions")
         if command -v record_section_installed &>/dev/null; then
-            local count=$(code --list-extensions 2>/dev/null | wc -l | xargs)
+            local count
+            count=$(code --list-extensions 2>/dev/null | wc -l | xargs)
             record_section_installed "vscode_extensions" "{\"count\": $count}"
         fi
     else
@@ -1044,8 +1126,10 @@ EOF
     if configure_git; then
         SUCCESSFUL_SECTIONS+=("git_config")
         if command -v record_section_installed &>/dev/null; then
-            local user_name=$(git config --global user.name 2>/dev/null || echo '')
-            local user_email=$(git config --global user.email 2>/dev/null || echo '')
+            local user_name
+            user_name=$(git config --global user.name 2>/dev/null || echo '')
+            local user_email
+            user_email=$(git config --global user.email 2>/dev/null || echo '')
             record_section_installed "git_config" "{\"user_name\": \"$user_name\", \"user_email\": \"$user_email\"}"
         fi
     else

@@ -1,11 +1,28 @@
 #!/bin/zsh
 # Main zsh configuration
-# This file sources modular configuration components
+# Sources modular components from the dev-env repo.
+#
+# Anything specific to one laptop belongs in ~/.zshrc.local, which is sourced
+# last and is not tracked. Keep this file identical on every machine.
+
+# ============================================================================
+# Homebrew
+# ============================================================================
+# Resolve the prefix instead of hardcoding it: /opt/homebrew on Apple Silicon,
+# /usr/local on Intel.
+if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+fi
+BREW_PREFIX="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
 
 # ============================================================================
 # PATH Configuration
 # ============================================================================
-export PATH=$HOME/bin:/usr/local/bin:$PATH
+# ~/.local/bin carries tools that install and update themselves, such as the
+# native Claude Code install.
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
 # ============================================================================
 # Oh-My-Zsh Configuration
@@ -13,66 +30,96 @@ export PATH=$HOME/bin:/usr/local/bin:$PATH
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="robbyrussell"
 plugins=(git)
-source $ZSH/oh-my-zsh.sh
+[ -f "$ZSH/oh-my-zsh.sh" ] && source "$ZSH/oh-my-zsh.sh"
 
 # ============================================================================
 # Version Managers & Language Tools
 # ============================================================================
 
-# Node.js (nvm)
-export NVM_DIR="$HOME/.nvm"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"
-[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
-
-# Python (pyenv)
-if command -v pyenv 1>/dev/null 2>&1; then
-  eval "$(pyenv init --path)"
+# mise - unified version manager. When it is active it supersedes nvm and
+# pyenv, so those are only loaded if mise is absent.
+if command -v mise >/dev/null 2>&1 && [ -e "$HOME/.config/mise/config.toml" ]; then
+    eval "$(mise activate zsh)"
+    MISE_ACTIVE=1
 fi
 
-# Anaconda/Conda
-__conda_setup="$('/opt/anaconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "/opt/anaconda3/etc/profile.d/conda.sh" ]; then
-        . "/opt/anaconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="/opt/anaconda3/bin:$PATH"
+if [ -z "$MISE_ACTIVE" ]; then
+    # Node.js (nvm)
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$BREW_PREFIX/opt/nvm/nvm.sh" ] && . "$BREW_PREFIX/opt/nvm/nvm.sh"
+    [ -s "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm" ] && \
+        . "$BREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm"
+
+    # Python (pyenv). --path sets up PATH; the second form installs the shims
+    # that `pyenv shell` and `pyenv local` need.
+    if command -v pyenv >/dev/null 2>&1; then
+        eval "$(pyenv init --path)"
+        eval "$(pyenv init -)"
     fi
 fi
-unset __conda_setup
 
 # Bun
 export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
+[ -d "$BUN_INSTALL/bin" ] && export PATH="$BUN_INSTALL/bin:$PATH"
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # Rust/Cargo
-export PATH="$HOME/.cargo/bin:$PATH"
+[ -d "$HOME/.cargo/bin" ] && export PATH="$HOME/.cargo/bin:$PATH"
 
-# NPM global packages
-export PATH="$(npm config get prefix)/bin:$PATH"
+# Anaconda/Conda
+for conda_base in "/opt/anaconda3" "$HOME/anaconda3" "$HOME/miniconda3" "$BREW_PREFIX/anaconda3"; do
+    if [ -x "$conda_base/bin/conda" ]; then
+        __conda_setup="$("$conda_base/bin/conda" 'shell.zsh' 'hook' 2>/dev/null)"
+        if [ $? -eq 0 ]; then
+            eval "$__conda_setup"
+        elif [ -f "$conda_base/etc/profile.d/conda.sh" ]; then
+            . "$conda_base/etc/profile.d/conda.sh"
+        else
+            export PATH="$conda_base/bin:$PATH"
+        fi
+        unset __conda_setup
+        break
+    fi
+done
+unset conda_base
 
-# Google Cloud SDK (if exists)
-if [ -f "$HOME/Desktop/google-cloud-sdk/path.zsh.inc" ]; then
-    . "$HOME/Desktop/google-cloud-sdk/path.zsh.inc"
-fi
-if [ -f "$HOME/Desktop/google-cloud-sdk/completion.zsh.inc" ]; then
-    . "$HOME/Desktop/google-cloud-sdk/completion.zsh.inc"
-fi
-
-# ============================================================================
-# Mise (Future migration path - currently optional)
-# ============================================================================
-# Uncomment when ready to migrate from nvm/pyenv to mise:
-# if command -v mise 1>/dev/null 2>&1; then
-#   eval "$(mise activate zsh)"
-# fi
+# Google Cloud SDK. Checked in the places it is normally installed; a path
+# outside these belongs in ~/.zshrc.local.
+for gcloud_dir in "$HOME/google-cloud-sdk" "$BREW_PREFIX/share/google-cloud-sdk" "/usr/local/share/google-cloud-sdk"; do
+    if [ -f "$gcloud_dir/path.zsh.inc" ]; then
+        . "$gcloud_dir/path.zsh.inc"
+        [ -f "$gcloud_dir/completion.zsh.inc" ] && . "$gcloud_dir/completion.zsh.inc"
+        break
+    fi
+done
+unset gcloud_dir
 
 # ============================================================================
 # Custom Configuration
 # ============================================================================
-# Source custom aliases and functions
-DOTFILES_DIR="${DOTFILES_DIR:-$HOME/dev-env}"
+# Resolve the repo from this file's own symlink, so the location of the
+# checkout does not have to be guessed.
+if [ -z "$DOTFILES_DIR" ]; then
+    if [ -L "$HOME/.zshrc" ]; then
+        _zshrc_target=$(readlink "$HOME/.zshrc")
+        case "$_zshrc_target" in
+            /*) ;;
+            *) _zshrc_target="$HOME/$_zshrc_target" ;;
+        esac
+        DOTFILES_DIR=$(cd "$(dirname "$_zshrc_target")/.." && pwd)
+        unset _zshrc_target
+    else
+        DOTFILES_DIR="$HOME/dev-env"
+    fi
+fi
+export DOTFILES_DIR
+
 [ -f "$DOTFILES_DIR/shell/zsh_aliases.sh" ] && source "$DOTFILES_DIR/shell/zsh_aliases.sh"
 [ -f "$DOTFILES_DIR/shell/zsh_functions.sh" ] && source "$DOTFILES_DIR/shell/zsh_functions.sh"
+
+# ============================================================================
+# Machine-local Configuration
+# ============================================================================
+# Not tracked by the repo. Put per-machine PATH entries, credentials sourcing
+# and one-off overrides here so this file can stay the same everywhere.
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"

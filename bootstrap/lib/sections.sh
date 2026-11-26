@@ -172,7 +172,8 @@ parse_section_list() {
         item=$(echo "$item" | xargs)
 
         # Expand if it's a group
-        local expanded=$(expand_group "$item")
+        local expanded
+        expanded=$(expand_group "$item")
         if [ "$expanded" != "$item" ]; then
             IFS=',' read -ra group_sections <<< "$expanded"
             sections+=("${group_sections[@]}")
@@ -210,7 +211,8 @@ get_reverse_deps() {
     local dependents=()
 
     for sec in "${SECTION_ORDER[@]}"; do
-        local deps=$(get_section_deps "$sec")
+        local deps
+        deps=$(get_section_deps "$sec")
         if [[ "$deps" == *"$section"* ]]; then
             dependents+=("$sec")
         fi
@@ -237,7 +239,8 @@ build_uninstall_order() {
         visited+=("$section")
 
         # Visit dependencies first
-        local deps=$(get_reverse_deps "$section")
+        local deps
+        deps=$(get_reverse_deps "$section")
         for dep in $deps; do
             # Only visit if in input list
             if array_contains "$dep" "${input_sections[@]}"; then
@@ -267,9 +270,12 @@ list_sections() {
     echo ""
 
     for section in "${SECTION_ORDER[@]}"; do
-        local name=$(get_section_name "$section")
-        local desc=$(get_section_description "$section")
-        local safety=$(get_section_safety "$section")
+        local name
+        name=$(get_section_name "$section")
+        local desc
+        desc=$(get_section_description "$section")
+        local safety
+        safety=$(get_section_safety "$section")
 
         # Color code by safety level
         local color=""
@@ -289,8 +295,11 @@ list_sections() {
     # List all groups manually (bash 3.2 compatible)
     local groups=("version_managers" "configs" "vscode" "homebrew_all" "minimal" "all")
     for group in "${groups[@]}"; do
-        local sections=$(expand_group "$group")
-        printf "  %-20s %s\n" "$group" "$sections"
+        # Not named `sections`: that name is an array elsewhere in this file,
+        # and reusing it here reads as a type change.
+        local group_sections
+        group_sections=$(expand_group "$group")
+        printf "  %-20s %s\n" "$group" "$group_sections"
     done
 }
 
@@ -299,7 +308,8 @@ show_section_status() {
     local section="$1"
     local installed="$2"  # true or false
 
-    local name=$(get_section_name "$section")
+    local name
+    name=$(get_section_name "$section")
     local status_symbol=""
     local status_color=""
 
@@ -322,11 +332,16 @@ show_section_info() {
         return 1
     fi
 
-    local name=$(get_section_name "$section")
-    local desc=$(get_section_description "$section")
-    local deps=$(get_section_deps "$section")
-    local safety=$(get_section_safety "$section")
-    local reverse_deps=$(get_reverse_deps "$section")
+    local name
+    name=$(get_section_name "$section")
+    local desc
+    desc=$(get_section_description "$section")
+    local deps
+    deps=$(get_section_deps "$section")
+    local safety
+    safety=$(get_section_safety "$section")
+    local reverse_deps
+    reverse_deps=$(get_reverse_deps "$section")
 
     echo "Section: $section"
     echo "Name: $name"

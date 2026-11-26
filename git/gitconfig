@@ -1,19 +1,16 @@
 # Git global configuration
 # This file should be symlinked to ~/.gitconfig
 
-[user]
-    # IMPORTANT: Set these via bootstrap script or manually:
-    # git config --global user.name "Your Name"
-    # git config --global user.email "your.email@example.com"
-    #
-    # The bootstrap script will set these from environment variables:
-    # export GIT_USER_NAME="Your Name"
-    # export GIT_USER_EMAIL="your.email@example.com"
-    #
-    # Note: These lines are intentionally commented out - uncomment and set manually
-    # or let the bootstrap script handle it
-    # name =
-    # email =
+# Identity is NOT set here. This file is symlinked to ~/.gitconfig, and git
+# follows that symlink when writing, so `git config --global user.email ...`
+# would write your address into this tracked file and commit it.
+#
+# It lives in ~/.gitconfig.local instead, which the [include] at the end of
+# this file pulls in. See git/gitconfig.local.example. The bootstrap script
+# creates it.
+#
+# Note that `git config --global --get user.name` does not follow includes and
+# will print nothing. Use `git config --get user.name`.
 
 [core]
     # Use VS Code as default editor
@@ -23,7 +20,7 @@
     autocrlf = input
 
     # Global gitignore file
-    excludesfile = ~/.gitignore_global
+	excludesfile = /Users/diegozuluaga/.gitignore_global
 
     # Prevent unnecessary commits with only whitespace changes
     whitespace = trailing-space,space-before-tab
@@ -246,3 +243,12 @@
 #
 # [merge]
 #     conflictstyle = diff3
+
+# ============================================================================
+# Machine-local configuration
+# ============================================================================
+# Last, so anything here wins. Holds the git identity and any per-machine
+# settings. Not tracked. Git ignores a missing include, so this is safe on a
+# machine where the file does not exist yet.
+[include]
+    path = ~/.gitconfig.local

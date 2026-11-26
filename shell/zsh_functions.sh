@@ -2,6 +2,23 @@
 # Custom shell functions
 
 # ============================================================================
+# Clear clashing aliases
+# ============================================================================
+# zsh expands an alias when it reads `name()`, so an alias of the same name
+# makes the function definition a parse error, and that error stops the rest
+# of this file loading. Oh My Zsh plugins load before this file and define
+# plenty of short aliases, so clear any that match a function defined below.
+#
+# The one that actually collides today is gcm: the git plugin defines it as
+# `git checkout <main branch>`, and the gcm() below is a conventional-commit
+# helper. The function wins. Oh My Zsh's own `gcmsg` is still `git commit -m`,
+# and `gco` is still checkout.
+for _fn in mkcd groot serve killport gcm gacp venv sysinfo; do
+    unalias "$_fn" 2>/dev/null
+done
+unset _fn
+
+# ============================================================================
 # Directory Management
 # ============================================================================
 

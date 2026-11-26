@@ -32,6 +32,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 source "$SCRIPT_DIR/state.sh"
+source "$SCRIPT_DIR/packages.sh"
 source "$SCRIPT_DIR/sections.sh"
 
 # ============================================================================
@@ -48,7 +49,8 @@ uninstall_homebrew() {
         return 0
     fi
 
-    local brew_prefix=$(brew --prefix 2>/dev/null)
+    local brew_prefix
+    brew_prefix=$(brew --prefix 2>/dev/null)
 
     if [ "$DRY_RUN" = true ]; then
         info "[DRY RUN] Would check if Homebrew can be safely removed"
@@ -57,8 +59,10 @@ uninstall_homebrew() {
     fi
 
     # CRITICAL: Check for non-bootstrap packages
-    local state_packages=$(get_section_state "brew_packages" | jq -r '.packages[]? // empty' 2>/dev/null)
-    local all_packages=$(brew leaves 2>/dev/null)
+    local state_packages
+    state_packages=$(get_section_state "brew_packages" | jq -r '.packages[]? // empty' 2>/dev/null)
+    local all_packages
+    all_packages=$(brew leaves 2>/dev/null)
 
     local other_packages=()
     while IFS= read -r pkg; do
@@ -119,7 +123,8 @@ uninstall_brew_packages() {
     fi
 
     # Get packages from state
-    local state_packages=$(get_section_state "$section" | jq -r '.packages[]? // empty' 2>/dev/null)
+    local state_packages
+    state_packages=$(get_section_state "$section" | jq -r '.packages[]? // empty' 2>/dev/null)
 
     if [ -z "$state_packages" ]; then
         warning "No tracked packages found in state"
@@ -167,11 +172,17 @@ uninstall_brew_casks() {
     fi
 
     # Get casks from state
-    local state_casks=$(get_section_state "$section" | jq -r '.casks[]? // empty' 2>/dev/null)
+    local state_casks
+    state_casks=$(get_section_state "$section" | jq -r '.casks[]? // empty' 2>/dev/null)
 
     if [ -z "$state_casks" ]; then
-        # Fallback
-        state_casks="claude-code"
+        # No state to go on: fall back to the manifest. Only casks brew
+        # actually manages are touched, checked in the loop below, so an app
+        # installed by hand is left alone.
+        local manifest="${REPO_ROOT:-$(dirname "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")")}/bootstrap/cask-apps.txt"
+        if [ -f "$manifest" ]; then
+            state_casks=$(read_manifest "$manifest" "${USE_MISE:-false}")
+        fi
     fi
 
     if [ "$DRY_RUN" = true ]; then
@@ -245,7 +256,8 @@ uninstall_nvm() {
     fi
 
     # Check for installed Node versions
-    local node_versions=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | wc -l | xargs)
+    local node_versions
+    node_versions=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | wc -l | xargs)
 
     if [ "$node_versions" -gt 0 ]; then
         warning "$node_versions Node.js version(s) installed"
@@ -303,7 +315,8 @@ uninstall_pyenv() {
     fi
 
     # Check for installed Python versions
-    local python_versions=$(pyenv versions --bare 2>/dev/null | wc -l | xargs)
+    local python_versions
+    python_versions=$(pyenv versions --bare 2>/dev/null | wc -l | xargs)
 
     if [ "$python_versions" -gt 0 ]; then
         warning "$python_versions Python version(s) installed"
@@ -404,7 +417,8 @@ uninstall_mise() {
     fi
 
     # Show installed tools
-    local tools=$(mise list 2>/dev/null | wc -l | xargs)
+    local tools
+    tools=$(mise list 2>/dev/null | wc -l | xargs)
 
     if [ "$tools" -gt 0 ]; then
         warning "$tools tool(s) installed via mise"
@@ -512,7 +526,8 @@ uninstall_symlinks() {
     info "Removing configuration symlinks..."
 
     # Get symlinks from state
-    local state_links=$(get_section_state "$section" | jq -r '.links | keys[]?' 2>/dev/null)
+    local state_links
+    state_links=$(get_section_state "$section" | jq -r '.links | keys[]?' 2>/dev/null)
 
     if [ -z "$state_links" ]; then
         # Fallback to common symlinks
@@ -520,7 +535,8 @@ uninstall_symlinks() {
     fi
 
     # Check for backups
-    local backup_dir=$(get_section_state "$section" | jq -r '.backup_dir // empty' 2>/dev/null)
+    local backup_dir
+    backup_dir=$(get_section_state "$section" | jq -r '.backup_dir // empty' 2>/dev/null)
 
     if [ "$DRY_RUN" = true ]; then
         info "[DRY RUN] Would remove symlinks:"
@@ -555,7 +571,8 @@ uninstall_symlinks() {
 
         if confirm "Restore original files from backup?"; then
             for file in "$backup_dir"/*; do
-                local basename=$(basename "$file")
+                local basename
+                basename=$(basename "$file")
                 info "Restoring: $basename"
                 cp "$file" "$HOME/$basename"
             done
@@ -588,7 +605,8 @@ uninstall_vscode_extensions() {
     fi
 
     # Get repo root
-    local repo_root=$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")
+    local repo_root
+    repo_root=$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")
     local extensions_file="$repo_root/editors/vscode/extensions.txt"
 
     if [ ! -f "$extensions_file" ]; then
@@ -630,8 +648,10 @@ uninstall_git_config() {
 
     info "Removing git user configuration..."
 
-    local current_name=$(git config --global user.name 2>/dev/null)
-    local current_email=$(git config --global user.email 2>/dev/null)
+    local current_name
+    current_name=$(git config --global user.name 2>/dev/null)
+    local current_email
+    current_email=$(git config --global user.email 2>/dev/null)
 
     if [ -z "$current_name" ] && [ -z "$current_email" ]; then
         warning "No git user configuration found"
@@ -669,6 +689,7 @@ uninstall_shell_config() {
 
     info "Removing shell configuration..."
 
+    # shellcheck disable=SC2088  # literal ~ is intended in the message
     if [ ! -f "$HOME/.zshrc.local" ]; then
         warning "~/.zshrc.local not found"
         return 0
@@ -681,7 +702,8 @@ uninstall_shell_config() {
 
     # Offer to backup first
     if confirm "Backup .zshrc.local before removing?"; then
-        local backup_path=$(backup_file "$HOME/.zshrc.local" "$HOME")
+        local backup_path
+        backup_path=$(backup_file "$HOME/.zshrc.local" "$HOME")
         info "Backup saved: $backup_path"
     fi
 

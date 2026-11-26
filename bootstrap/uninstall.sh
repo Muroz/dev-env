@@ -57,7 +57,6 @@ SHOW_STATUS=false
 RESTORE_BACKUPS=false
 LIST_SECTIONS=false
 VERBOSE=false
-ERROR_COUNT=0
 
 # ============================================================================
 # Help Message
@@ -219,8 +218,10 @@ show_installation_status() {
     fi
 
     # Installation info
-    local mode=$(get_installation_mode)
-    local date=$(get_installation_date)
+    local mode
+    mode=$(get_installation_mode)
+    local date
+    date=$(get_installation_date)
 
     echo "Mode: $mode"
     [ -n "$date" ] && echo "Installed: $date"
@@ -239,16 +240,19 @@ show_installation_status() {
 
         # Get additional info if verbose
         if [ "$VERBOSE" = true ] && [ "$installed" = true ]; then
-            local state=$(get_section_state "$section")
+            local state
+            state=$(get_section_state "$section")
 
             show_section_status "$section" "true"
 
             # Show section-specific details
             if [ "$section" = "brew_packages" ]; then
-                local packages=$(echo "$state" | jq -r '.packages[]?' 2>/dev/null | tr '\n' ' ')
+                local packages
+                packages=$(echo "$state" | jq -r '.packages[]?' 2>/dev/null | tr '\n' ' ')
                 [ -n "$packages" ] && echo "    Packages: $packages"
             elif [ "$section" = "mise" ]; then
-                local tools=$(echo "$state" | jq -r '.tools[]?' 2>/dev/null | tr '\n' ' ')
+                local tools
+                tools=$(echo "$state" | jq -r '.tools[]?' 2>/dev/null | tr '\n' ' ')
                 [ -n "$tools" ] && echo "    Tools: $tools"
             fi
         else
@@ -259,7 +263,8 @@ show_installation_status() {
     echo ""
 
     # Show backups
-    local backups=$(list_backups)
+    local backups
+    backups=$(list_backups)
     if [ -n "$backups" ]; then
         echo "Backups:"
         echo ""
@@ -284,7 +289,8 @@ restore_backups_interactive() {
     echo "================================================================"
     echo ""
 
-    local backups=$(list_backups)
+    local backups
+    backups=$(list_backups)
 
     if [ -z "$backups" ]; then
         warning "No backups found"
@@ -310,7 +316,8 @@ restore_backups_interactive() {
             info "Restoring files from: $backup_dir"
 
             for file in "$backup_dir"/*; do
-                local basename=$(basename "$file")
+                local basename
+                basename=$(basename "$file")
                 info "Restoring: $basename"
                 cp "$file" "$HOME/$basename"
             done
@@ -326,13 +333,15 @@ restore_backups_interactive() {
             info "Cancelled"
             return 0
         elif [ "$selection" -ge 1 ] && [ "$selection" -le "${#backup_dirs[@]}" ]; then
-            local idx=$((selection - 1))
+            local idx
+            idx=$((selection - 1))
             local backup_dir="${backup_dirs[$idx]}"
 
             info "Restoring files from: $backup_dir"
 
             for file in "$backup_dir"/*; do
-                local basename=$(basename "$file")
+                local basename
+                basename=$(basename "$file")
                 info "Restoring: $basename"
                 cp "$file" "$HOME/$basename"
             done
@@ -361,7 +370,7 @@ execute_uninstall() {
     echo ""
 
     if [ "$DRY_RUN" = true ]; then
-        warning "DRY RUN MODE - No changes will be made"
+        echo -e "${YELLOW}[DRY RUN]${NC} No changes will be made"
         echo ""
     fi
 
@@ -370,8 +379,10 @@ execute_uninstall() {
     echo ""
 
     for section in "${sections_to_uninstall[@]}"; do
-        local name=$(get_section_name "$section")
-        local safety=$(get_section_safety "$section")
+        local name
+        name=$(get_section_name "$section")
+        local safety
+        safety=$(get_section_safety "$section")
 
         # Color code by safety
         case "$safety" in
@@ -487,7 +498,8 @@ execute_uninstall() {
         echo "  - To reinstall, run: $REPO_ROOT/bootstrap/install.sh"
 
         # Mention backups if they exist
-        local backups=$(list_backups)
+        local backups
+        backups=$(list_backups)
         if [ -n "$backups" ]; then
             echo "  - To restore backups: ./uninstall.sh --restore-backups"
         fi
@@ -551,19 +563,21 @@ main() {
 
     if [ "$UNINSTALL_ALL" = true ]; then
         # Get mode to filter sections
-        local mode=$(get_installation_mode)
+        local mode
+        mode=$(get_installation_mode)
 
         if [ "$mode" = "mise" ]; then
-            sections_to_uninstall=($(get_mode_sections "mise"))
+            read -ra sections_to_uninstall <<< "$(get_mode_sections "mise")"
         elif [ "$mode" = "standard" ]; then
-            sections_to_uninstall=($(get_mode_sections "standard"))
+            read -ra sections_to_uninstall <<< "$(get_mode_sections "standard")"
         else
             # Unknown mode - include all
             sections_to_uninstall=("${SECTION_ORDER[@]}")
         fi
     else
         # Parse section list
-        local parsed=$(parse_section_list "$UNINSTALL_SECTIONS")
+        local parsed
+        parsed=$(parse_section_list "$UNINSTALL_SECTIONS")
         IFS=' ' read -ra sections_to_uninstall <<< "$parsed"
     fi
 
@@ -577,7 +591,8 @@ main() {
     done
 
     # Build proper uninstall order (reverse dependencies)
-    local ordered_sections=$(build_uninstall_order "${sections_to_uninstall[@]}")
+    local ordered_sections
+    ordered_sections=$(build_uninstall_order "${sections_to_uninstall[@]}")
     IFS=' ' read -ra sections_to_uninstall <<< "$ordered_sections"
 
     # Execute uninstall and capture exit code

@@ -121,7 +121,7 @@ json_get_array() {
     fi
 
     if has_jq; then
-        jq -r "$key[]? // empty" "$file" 2>/dev/null
+        jq -r "${key}[]? // empty" "$file" 2>/dev/null
     else
         # Fallback: Basic array parsing
         warning "jq not installed - array parsing may be inaccurate"
@@ -180,8 +180,10 @@ get_absolute_path() {
     if [ -d "$path" ]; then
         (cd "$path" && pwd)
     elif [ -f "$path" ]; then
-        local dir=$(dirname "$path")
-        local file=$(basename "$path")
+        local dir
+        dir=$(dirname "$path")
+        local file
+        file=$(basename "$path")
         echo "$(cd "$dir" && pwd)/$file"
     else
         echo "$path"
@@ -248,8 +250,10 @@ backup_file() {
         return 1
     fi
 
-    local basename=$(basename "$file")
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local basename
+    basename=$(basename "$file")
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
     local backup_path="$backup_dir/${basename}.backup-${timestamp}"
 
     cp "$file" "$backup_path"

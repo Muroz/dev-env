@@ -1,0 +1,24 @@
+#!/bin/zsh
+# Machine-specific shell configuration.
+#
+# Copy to ~/.zshrc.local. It is sourced last by shell/zshrc and is not tracked,
+# so this is where anything true of only one laptop belongs. Keeping it out of
+# the shared zshrc is what lets both machines run the same file.
+
+# ============================================================================
+# PATH additions
+# ============================================================================
+# A tool installed somewhere unusual on this machine only.
+# export PATH="$HOME/Desktop/google-cloud-sdk/bin:$PATH"
+
+# ============================================================================
+# Credentials
+# ============================================================================
+# Keep secrets out of the repo. See .env.example for the template.
+# [ -f "$HOME/.env.local" ] && source "$HOME/.env.local"
+
+# ============================================================================
+# Overrides
+# ============================================================================
+# Aliases or functions for work specific to this machine.
+# alias work="cd ~/Clients/acme"
