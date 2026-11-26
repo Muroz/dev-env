@@ -1,528 +1,472 @@
 # Configuration reference
 
-Each file this repo manages, what it sets and why. For how to install
-and check a machine, see the [README](../README.md).
+Every file this repo manages, what it sets and why. To install or check a
+machine, see the [README](../README.md).
+
+- [Bootstrap](#bootstrap)
+- [Shell configuration](#shell-configuration)
+- [Git configuration](#git-configuration)
+- [VS Code](#vs-code)
+- [Version management](#version-management)
+- [Cask applications](#cask-applications)
+- [Update script](#update-script)
 
 ---
 
 ## Bootstrap
 
-**File**: `bootstrap/install.sh`
+`bootstrap/install.sh` takes a machine from nothing to a working setup. You can
+run it as often as you like: it skips what is already in place, so a second run
+reports and changes nothing.
 
-The bootstrap script automates the entire setup process with robust error handling and idempotent design.
+It works through eleven steps:
 
-**What it does**:
-1. Validates macOS system and required dependencies (curl, git)
-2. Installs Homebrew (if not present) for both Intel and Apple Silicon Macs
-3. Installs all packages from `brew-packages.txt` and `cask-apps.txt`
-4. Installs oh-my-zsh (robbyrussell theme)
-5. Sets up version managers:
-   - Standard mode: nvm, pyenv, bun, rust, conda
-   - mise for Node and Bun, rustup for Rust, conda for Python
-6. Creates symlinks for shell and git configurations with automatic backups
-7. Installs VS Code extensions and copies settings
-8. Configures git with environment variables
-9. Creates `~/.zshrc.local` for machine-specific customizations
+1. Checks that this is macOS and that `git` and `curl` are present.
+2. Installs Homebrew if it is missing, on Apple silicon or Intel.
+3. Installs the formulas in `bootstrap/brew-packages.txt`.
+4. Installs the applications in `bootstrap/cask-apps.txt`, skipping any whose
+   app is already in `/Applications`.
+5. Installs oh-my-zsh if it is missing.
+6. Installs mise, symlinks `mise/config.toml` and installs the tools it pins.
+7. Installs rustup if `cargo` is missing. It reports conda but never installs
+   it, since conda ships its own installer.
+8. Symlinks the shell and git configuration, backing up whatever it replaces.
+9. Installs the VS Code extensions and copies the settings over.
+10. Writes your git identity to `~/.gitconfig.local` if it is not there yet.
+11. Creates `~/.zshrc.local` from the template, leaves an existing one alone,
+    installs the pre-commit hook and schedules the weekly drift check.
 
-**Features**:
-- **Idempotent**: Safe to run multiple times, skips already installed components
-- **Graceful error handling**: Continues on individual failures, reports issues at end
-- **Automatic backups**: Backs up existing config files before creating symlinks
-- **Progress reporting**: Shows installation counts (X/Y installed) and failed items
-- **Dry-run mode**: Preview changes without making modifications
-- **Download verification**: Validates all downloaded installers before execution
+### Options
 
-**Usage**:
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Print what would happen. Nothing changes. |
+| `--skip-backups` | Replace configuration without backing it up first. |
+| `--help` | Print usage. |
 
 ```bash
-# Standard installation
-export GIT_USER_NAME="Your Name"
-export GIT_USER_EMAIL="your.email@example.com"
-./bootstrap/install.sh
-
-# Preview what would be installed (dry-run)
 ./bootstrap/install.sh --dry-run
-
-# Skip backup creation (faster re-runs)
-./bootstrap/install.sh --skip-backups
-
-
-# View available options
-./bootstrap/install.sh --help
 ```
 
-**Command-line Options**:
-- `--dry-run` - Preview changes without making modifications
-- `--skip-backups` - Skip creating backups of existing configuration files
-- `--help` - Display usage information and available options
+### How it handles failure
 
-**Version Management Options**:
+A missing system dependency stops the script at once, because nothing else can
+succeed without it. Anything else is reported and the run continues, so one
+unavailable package does not abandon the rest of the setup.
 
-The bootstrap script supports two approaches for managing programming language versions:
+The summary separates the two. Warnings count an optional tool that is absent,
+which is normal and does not affect the exit status. Errors and failed sections
+do: the script exits 1 when either occurs.
 
-mise manages Node and Bun from `mise/config.toml`. Rust stays with rustup and
-Python stays with conda, both of which have their own installers and
-ecosystems. See [Version Management](#version-management) for why Python is
-left alone.
+### What it backs up
 
-The manifests are read verbatim: one entry per line, blank lines and comments
-ignored. There are no conditional markers any more — there is one mode, so
-there is nothing to branch on.
+Before replacing a configuration file with a symlink, the script copies the
+original to `~/.dotfiles-backup-<timestamp>`. It records what it installed in
+`~/.dev-env/state.json`, which the uninstaller later reads to know what it may
+remove. A dry run writes neither.
 
-**Machine-specific Settings**:
+**Caution:** the Homebrew and oh-my-zsh installers run as their vendors publish
+them, without checksum verification. The mise installer verifies its own
+download against a checksum it carries. If running vendor installers is not
+acceptable to you, install those three by hand and run this script afterwards;
+it skips what is already present.
 
-The script copies `shell/zshrc.local.example` to `~/.zshrc.local`, which is not
-tracked in git, and `shell/zshrc` sources it last:
-- PATH additions for one machine only
-- Machine-specific aliases or functions
-- Sourcing local credentials
-- Anything that differs between machines
+### Formulas
 
-This is what lets `shell/zshrc` stay byte-identical on every laptop. If you
-find yourself editing the tracked `zshrc` for something true of one machine,
-it belongs in `~/.zshrc.local` instead.
+`bootstrap/brew-packages.txt` tracks the formulas you asked for, not their
+dependencies, which Homebrew resolves itself.
 
-**Brew Packages** (`brew-packages.txt`):
-- `mise` - manages the Node and Bun versions in `mise/config.toml`
-- `jq` - required: `bootstrap/lib/state.sh` records what it installed as JSON
-- `shellcheck` - required by `scripts/check.sh`
-- `poetry` - Python dependency management
-- `gh`, `git-filter-repo` - GitHub CLI and history rewriting
-- `helm`, `kind` - Kubernetes
-- `openjdk@17` - Java
-- `tippecanoe`, `pmtiles` - vector tilesets and cloud-optimized map tiles
+| Formula | Purpose |
+|---------|---------|
+| `jq` | Required. `bootstrap/lib/state.sh` writes its state as JSON. |
+| `shellcheck` | Required by `scripts/check.sh`. |
+| `poetry` | Python dependency management. |
+| `gh`, `git-filter-repo` | GitHub from the terminal, and history rewriting. |
+| `helm`, `kind` | Kubernetes. |
+| `openjdk@17` | Java. |
+| `tippecanoe`, `pmtiles` | Vector tilesets and cloud-optimized map tiles. |
+| `cmake`, `autoconf`, `pkgconf`, `python@3.15` | Homebrew's build toolchain. |
 
-**Note**: Only explicitly installed packages are listed; Homebrew pulls in
-dependencies itself. The file also carries a commented list of candidates,
-`uv` and `ruff` among them, each saying what it would replace.
+mise is **not** in that file. Homebrew publishes no bottle for it on macOS 14
+arm64, so brew would build it from source along with LLVM and Rust. The
+installer uses mise's own installer instead, which fetches a prebuilt binary
+into `~/.local/bin`.
 
-**Error Handling**:
+The build toolchain is tracked for a related reason. Because this platform has
+no bottles, Homebrew builds `poetry`, `lz4`, `webp` and others locally, and it
+needs those four to do so. `brew uninstall` refuses to remove them.
 
-The script tracks errors but continues execution:
-- Failed package installations are logged and reported
-- Missing dependencies cause immediate exit with helpful message
-- Returns exit code 1 if any errors occurred
-- Provides summary of warnings/errors at completion
+The file also carries a commented list of candidates, `uv` and `ruff` among
+them, each noting what it would replace.
 
 ---
 
 ## Shell configuration
 
-**Files**:
-- `shell/zshrc` - Main configuration
-- `shell/zsh_aliases.sh` - Aliases
-- `shell/zsh_functions.sh` - Functions
-
-**Modular Structure**:
-The shell configuration is split into multiple files for better maintainability and machine-specific customization:
+Three tracked files and one that is not:
 
 ```
-~/.zshrc (symlink) → ~/dev-env/shell/zshrc
-                      ├─ sources ~/dev-env/shell/zsh_aliases.sh
-                      ├─ sources ~/dev-env/shell/zsh_functions.sh
-                      └─ sources ~/.zshrc.local (machine-specific)
+~/.zshrc (symlink) → shell/zshrc
+                     ├─ sources shell/zsh_aliases.sh
+                     ├─ sources shell/zsh_functions.sh
+                     └─ sources ~/.zshrc.local   (per machine, untracked)
 ```
 
-### Main configuration (`zshrc`)
+### Main configuration
 
-Sets up:
-- oh-my-zsh with robbyrussell theme and git plugin
-- Node.js via nvm
-- Python via pyenv
-- Anaconda/Conda environment
-- Bun JavaScript runtime
-- Rust/Cargo toolchain
-- NPM global packages
-- Google Cloud SDK (if installed)
-- Optional mise integration (commented out)
+`shell/zshrc` is identical on every machine. In order, it:
 
-### Local configuration (`~/.zshrc.local`)
+1. Resolves the Homebrew prefix rather than hardcoding it, so the file works on
+   Apple silicon and Intel.
+2. Puts `~/bin` and `~/.local/bin` on `PATH`. The second matters, because
+   self-updating tools install there.
+3. Loads oh-my-zsh with the `robbyrussell` theme and the `git` plugin.
+4. Activates mise, which provides Node and Bun.
+5. Adds `~/.cargo/bin` for rustup's toolchains.
+6. Activates conda from whichever of four locations holds it.
+7. Sources the Google Cloud SDK if it finds one.
+8. Works out this repo's location from the `~/.zshrc` symlink, then sources the
+   aliases and functions.
+9. Sources `~/.zshrc.local` last, so anything there wins.
 
-**Not tracked in git** - created by the bootstrap script from
-`shell/zshrc.local.example`, and never overwritten if it already exists.
+If mise is absent, step 4 falls back to nvm and a standalone bun and says so on
+stderr. Without that fallback a machine part-way through the migration has no
+`node` at all.
 
-This file is for machine-specific settings:
-- Custom PATH additions for this machine only
-- Machine-specific aliases or functions
-- Local environment variables
-- Any settings that differ between machines
+### Machine-local configuration
 
-**Example customizations**:
+`~/.zshrc.local` is not tracked. The installer creates it from
+`shell/zshrc.local.example` and never overwrites an existing one. Put anything
+true of a single machine there:
+
 ```bash
-# Custom PATH for this machine
 export PATH="$HOME/custom/bin:$PATH"
-
-# Machine-specific alias
-alias vpn-connect="sudo openconnect vpn.company.com"
-
-# Project shortcuts
-alias myproject="cd ~/projects/myproject && code ."
+alias work="cd ~/clients/acme"
+[ -f "$HOME/.env.local" ] && source "$HOME/.env.local"
 ```
 
-**Benefits**:
-- Repository stays clean and portable
-- No accidental commits of machine-specific settings
-- Easy to identify what's local vs shared across machines
+Keeping those out of `shell/zshrc` is what lets the tracked file stay
+byte-identical everywhere. If you are editing the tracked file for something
+true of one laptop, it belongs here instead.
 
-### Aliases (`zsh_aliases.sh`)
+`DOTFILES_DIR` is one exception. `shell/zshrc` resolves it before sourcing the
+aliases, so setting it in `~/.zshrc.local` is too late to take effect. Export
+it from `~/.zprofile` if you ever need to override it.
 
-**Navigation**:
-- `..`, `...`, `....` - Navigate up directories
-- `~` - Go to home directory
+### Aliases
 
-**Git Shortcuts**:
-- `gs` - git status
-- `ga` - git add
-- `gc` - git commit
-- `gp` - git push
-- `gl` - git pull
-- `gd` - git diff
-- `gco` - git checkout
-- `gb` - git branch
-- `glog` - Pretty git log with graph
+`shell/zsh_aliases.sh` defines 34 aliases.
 
-**Development**:
-- `nr` - npm run
-- `nrd` - npm run dev
-- `nrb` - npm run build
-- `nrt` - npm run test
-- `ni` - npm install
-- `py` - python3
-- `pip` - pip3
+Navigation:
 
-**System**:
-- `ll` - Detailed list with hidden files
-- `la` - List all files
-- `showfiles` / `hidefiles` - Toggle hidden files in Finder
-- `ip` - Show public IP address
-- `localip` - Show local IP address
+- `..`, `...`, `....` move up one, two or three directories
+- `~` goes home
+- `ll`, `la`, `l` list in long form, including hidden files, and in columns
 
-**Docker**:
-- `d` - docker
-- `dc` - docker-compose
-- `dps` - docker ps
-- `dimg` - docker images
+Git:
 
-**Environment**:
-- `reload` - Reload shell configuration
-- `edit-zsh` - Open zshrc in VS Code
-- `update-dotfiles` - Pull latest configs and reload
+- `gs`, `ga`, `gc`, `gp`, `gl`, `gd`, `gco`, `gb` for status, add, commit,
+  push, pull, diff, checkout and branch
+- `glog` prints a graph log
 
-### Functions (`zsh_functions.sh`)
+npm and Python:
 
-**Directory Management**:
-- `mkcd <dir>` - Create directory and cd into it
-- `groot` - Go to git repository root
+- `nr`, `nrd`, `nrb`, `nrt`, `ni` for run, run dev, run build, run test and
+  install
+- `py` and `pip` for `python3` and `pip3`
 
-**Development Helpers**:
-- `serve [port]` - Quick HTTP server (default port 8000)
-- `killport <port>` - Kill process running on specific port
+Docker:
 
-**Git Helpers**:
-- `gcm <type> <message>` - Conventional commit (feat, fix, docs)
-- `gacp <message>` - Quick add, commit, and push
+- `d`, `dc`, `dps`, `dimg` for docker, docker-compose, `ps` and `images`
 
-**Node/NPM**:
-- `clean-install` - Remove node_modules and reinstall
-- `npm-update-global` - Update all global npm packages
+macOS and this repo:
 
-**Python**:
-- `venv-create` - Create and activate virtual environment
-- `venv` - Activate existing virtual environment (.venv or venv)
+- `showfiles` and `hidefiles` toggle hidden files in Finder
+- `ip` and `localip` print your public and local addresses
+- `reload` re-sources the shell, `edit-zsh` opens the config in VS Code
+- `update-dotfiles` pulls this repo and reloads
 
-**System**:
-- `sysinfo` - Display system and development tool versions
+### Functions
+
+`shell/zsh_functions.sh` defines 11 functions.
+
+| Function | What it does |
+|----------|--------------|
+| `mkcd <dir>` | Creates a directory and changes into it. |
+| `groot` | Changes to the git repository root. |
+| `serve [port]` | Serves the current directory over HTTP, port 8000 by default. |
+| `killport <port>` | Kills whatever is listening on a port. |
+| `gcm <type> <message>` | Commits in conventional-commit form. |
+| `gacp <message>` | Adds, commits and pushes in one step. |
+| `clean-install` | Removes `node_modules` and reinstalls. |
+| `npm-update-global` | Updates every global npm package. |
+| `venv-create` | Creates a virtual environment and activates it. |
+| `venv` | Activates an existing `.venv` or `venv`. |
+| `sysinfo` | Prints the system and tool versions. |
+
+The file clears any alias that shares a name with one of these before defining
+it. zsh expands an alias when it reads `name()`, and the resulting parse error
+would stop the rest of the file loading. Oh My Zsh's git plugin defines `gcm`,
+so without that step `gcm` and everything after it would be missing.
 
 ---
 
 ## Git configuration
 
-**Files**:
-- `git/gitconfig` - Global git settings
-- `git/gitignore_global` - Global ignore patterns
-
-**Symlinks**:
 ```
-~/.gitconfig → ~/dev-env/git/gitconfig
-~/.gitignore_global → ~/dev-env/git/gitignore_global
+~/.gitconfig        → git/gitconfig
+~/.gitignore_global → git/gitignore_global
 ```
 
-### Git config features
+### Settings
 
-**Modern Settings**:
-- `pull.ff = only` - Prevent accidental merge commits
-- `push.autoSetupRemote = true` - Auto-setup remote tracking
-- `push.followTags = true` - Push relevant tags automatically
-- `fetch.prune = true` - Auto-remove deleted remote branches
-- `merge.conflictStyle = zdiff3` - Better conflict resolution
-- `rebase.autoStash = true` - Auto-stash before rebasing
-- `diff.algorithm = histogram` - Better diff output
+`git/gitconfig` sets, among others:
 
-**Extensive Aliases** (30+ commands):
-- `git s` - Short status
-- `git lg` - Beautiful colored log
-- `git pf` - Safe force push (--force-with-lease)
-- `git cleanup` - Remove merged branches
-- `git wip` - Quick work-in-progress commit
-- `git recent` - Show recently used branches
-- `git contributors` - Show commit statistics
+| Setting | Effect |
+|---------|--------|
+| `pull.ff = only` | A pull that cannot fast-forward fails rather than merging. |
+| `push.autoSetupRemote = true` | A new branch gets its upstream on first push. |
+| `push.followTags = true` | Pushes annotated tags along with commits. |
+| `fetch.prune = true` | Drops remote branches that no longer exist. |
+| `merge.conflictStyle = zdiff3` | Shows the common ancestor in a conflict. |
+| `rebase.autoStash = true` | Stashes and restores around a rebase. |
+| `diff.algorithm = histogram` | Produces more readable diffs. |
 
-See `git/gitconfig` for complete list.
+It also defines 39 aliases, including `git s` for a short status, `git lg` for a
+graph log, `git pf` for a force-push with `--force-with-lease`, `git cleanup` to
+drop merged branches and `git wip` for a quick work-in-progress commit. Read
+`git/gitconfig` for the rest.
 
-**User Configuration**:
+### Your identity
 
-User identity is set via environment variables (not committed):
+Identity lives in `~/.gitconfig.local`, which is not tracked, and
+`git/gitconfig` pulls it in with an `[include]` at the end.
+
+It must not go in the tracked file. `~/.gitconfig` is a symlink into this repo,
+and git writes through a symlink, so `git config --global user.email` would
+write your address into a file you then commit.
+
+Set it from the template, or let the installer move an existing identity across:
+
 ```bash
-export GIT_USER_NAME="Your Name"
-export GIT_USER_EMAIL="your.email@example.com"
-git config --global user.name "$GIT_USER_NAME"
-git config --global user.email "$GIT_USER_EMAIL"
+cp -n git/gitconfig.local.example ~/.gitconfig.local
 ```
 
-The bootstrap script handles this automatically.
+One consequence is worth remembering: `git config --global --get user.name`
+does not follow includes and prints nothing. Read it back without `--global`:
+
+```bash
+git config --get user.name
+```
 
 ### Global gitignore
 
-Ignores common files across all repositories:
-- macOS system files (.DS_Store)
-- Editor files (.vscode/, .idea/, *.swp)
-- Node.js (node_modules/, npm-debug.log)
-- Python (__pycache__/, .env, venv/)
-- Build outputs (dist/, build/)
-- Temporary files and logs
+`git/gitignore_global` applies to every repository on the machine, so it lists
+only patterns that are unambiguous: macOS and editor files, credentials and key
+material, Python bytecode, `node_modules`, logs and backups.
+
+Bare directory names such as `build`, `dist`, `out`, `target` and `lib` are
+deliberately absent, although the upstream Node and Python templates include
+them. Globally they hide real source: `lib/` once made
+`bootstrap/lib/packages.sh` in this repo invisible, with no error and nothing in
+`git status`. Put those in a project's own `.gitignore`, where they are scoped
+to that project.
+
+To find out what is hiding a file:
+
+```bash
+git check-ignore -v <path>
+```
 
 ---
 
-## VS Code settings
+## VS Code
 
-**Files**:
-- `editors/vscode/settings.json` - User settings
-- `editors/vscode/keybindings.json` - Custom keybindings
-- `editors/vscode/extensions.txt` - Extensions list
+Three files, two copied and one read as a list:
 
-### Settings highlights
+- `editors/vscode/settings.json` becomes `~/Library/Application Support/Code/User/settings.json`
+- `editors/vscode/keybindings.json` becomes the matching `keybindings.json`
+- `editors/vscode/extensions.txt` lists 44 extensions to install
 
-**Editor**:
-- Auto-save after 1 second delay
-- Trim trailing whitespace on save
-- Format on save enabled
-- Bracket pair colorization
-- Column rulers at 80 and 120 characters
+The installer backs up an existing settings file before replacing it, and skips
+the copy when the two already match.
 
-**Git Integration**:
-- Auto-fetch enabled
-- Smart commit (auto-stage all if nothing staged)
-- GitLens with customized views
+### Settings
 
-**Formatters**:
-- TypeScript/JavaScript: Prettier + ESLint auto-fix
-- Python: Built-in formatter with import organization
-- JSON/JSONC: Built-in / Prettier
-- CSS/HTML/Markdown: Prettier
+The tracked settings are deliberately small. They set per-language formatters
+for TypeScript, JavaScript, Vue, Markdown, JSON, JSONC, CSS and HTML, turn on
+`git.autofetch`, group the GitLens source-control views, keep TypeScript from
+rewriting imports when a file moves, wrap editor tabs, label `index.ts` files by
+their parent directory and put Claude Code in the panel.
 
-**TypeScript**:
-- Inlay hints for parameters and return types
-- Never auto-update imports on file move
+They do not set a theme, a font, rulers, auto-save or format-on-save. An earlier
+version of this repo carried a much larger settings file that had never been
+applied to either machine; it was replaced with what the machines actually run.
 
-**Python**:
-- Basic type checking with Pylance
-- Auto-import completions
+### Keybindings
 
-**Tailwind CSS**:
-- IntelliSense for `cva()` and `cx()` utilities
+One binding: `shift+enter` sends a line continuation to the integrated terminal,
+so you can write a multi-line command without running it.
 
-### Extensions (31 total)
+### Extensions
 
-**AI & Productivity**:
-- Claude Code
+`extensions.txt` is a plain list, so you can install it without this repo's
+scripts:
 
-**Linting & Formatting**:
-- ESLint, Prettier, EditorConfig
-
-**Version Control**:
-- GitLens
-
-**Docker & Remote**:
-- Docker, Remote Containers, Remote SSH, Remote Explorer
-
-**GitHub**:
-- Codespaces, GitHub Actions
-
-**Python**:
-- Python, Pylance, Debugpy, Python Environments
-
-**Jupyter**:
-- Jupyter, Jupyter Keymap, Jupyter Renderers, Cell Tags, Slideshow
-
-**Testing**:
-- Jest, Vitest Runner, Vitest Explorer
-
-**Languages**:
-- HTML/CSS IntelliSense, Auto Rename Tag, Tailwind Headwind
-
-**Styling**:
-- Styled Components, SVG Preview
-
-**TypeScript**:
-- Pretty TypeScript Errors
-
-**Installing Extensions**:
 ```bash
-cat editors/vscode/extensions.txt | grep -v '^#' | xargs -L 1 code --install-extension
+grep -v '^#' editors/vscode/extensions.txt | grep -v '^$' | xargs -L 1 code --install-extension
 ```
+
+`doctor.sh` compares the list against what is installed and reports both
+directions, so an extension you add on one laptop shows up as untracked until
+you add it to the file.
 
 ---
 
 ## Version management
 
-**File**: `mise/config.toml`
-
-mise manages Node and Bun, from the versions pinned in that file. It is
-symlinked to `~/.config/mise/config.toml`, activated by `shell/zshrc`, and
-switches versions per directory when a project has its own `.mise.toml`,
-`.nvmrc` or `.python-version`.
-
-There used to be a `--use-mise` flag choosing between mise and nvm/pyenv. That
-second path is gone. One way of setting up a machine is the entire point of
-this repo, and the dual mode was where the bug lived that reinstalled nvm and
-pyenv onto a mise machine.
+mise manages Node and Bun from `mise/config.toml`, which the installer symlinks
+to `~/.config/mise/config.toml`. `shell/zshrc` activates it, and it switches
+versions per directory for any project carrying its own `.mise.toml`, `.nvmrc`
+or `.python-version`.
 
 ```bash
-mise current          # what is active here
-mise install          # install what config.toml pins
-mise outdated         # what is behind the pins
+mise current     # what is active here
+mise install     # install what the config pins
+mise outdated    # what is behind the pins
 ```
 
-The installer does not rewrite `mise/config.toml`. Its versions are used as
-committed, which keeps the checkout clean — a dirty checkout would stop the
+Changing a version in `mise/config.toml` and running `mise install` on each
+laptop is how both machines move together. Renovate watches the file and opens
+a pull request when a tool has a newer release.
+
+The installer never rewrites `mise/config.toml`. Its versions are used as
+committed, which keeps the checkout clean, and a dirty checkout would stop the
 `git pull` in `update-tools.sh`.
 
 ### What mise does not manage
 
 | Tool | Managed by | Why |
 |------|-----------|-----|
-| Rust | rustup | It manages its own toolchains and updates in place. |
-| Python | conda | conda already provides it at `/opt/anaconda3`. Both tools rewrite `PATH` on activation, so handing Python to mise would put a second interpreter ahead of conda's for no gain. |
+| Rust | rustup | It manages its own toolchains and updates them in place. |
+| Python | conda | conda already provides it at `/opt/anaconda3`. Both tools rewrite `PATH` on activation, so giving Python to mise would put a second interpreter ahead of conda's for no gain. |
 
-pyenv was removed rather than migrated. It was set to `system` and managing
-nothing: Python came from conda the whole time.
-
-### Leftovers
+### Superseded managers
 
 nvm, pyenv and a standalone bun put shims on `PATH` ahead of mise, so a stale
-one wins silently. `doctor.sh` reports any that are still present, and they
-come off with:
+one wins silently. `doctor.sh` reports any that can still load, and the
+uninstaller removes them:
 
 ```bash
 ./bootstrap/uninstall.sh --sections nvm,pyenv,bun
 ```
 
-Those sections remain in the uninstaller for exactly this reason, although
-nothing installs them any more.
+Installed Node and Python versions are preserved unless you pass
+`--remove-data`. Those sections remain in the uninstaller although nothing
+installs them, because they are how a machine still carrying them gets cleaned
+up.
 
 ---
 
 ## Cask applications
 
-**File**: `bootstrap/cask-apps.txt`
-
-Casks are used to bootstrap a machine and to inventory what belongs on it. They
-are not an update channel. Every tracked app ships its own updater, and the
-repo leaves them to it.
+`bootstrap/cask-apps.txt` bootstraps the applications a machine should have. It
+is not an update channel: every tracked app ships its own updater, and the repo
+leaves them to it.
 
 ### Why an app seems to need reinstalling
 
 Homebrew records the version a cask installed. A self-updating app then moves
-past that version on its own, so brew considers it outdated. Two things follow
-from that:
+past that version on its own, so brew considers it outdated. Two things follow:
 
-- `brew upgrade --cask` skips casks marked `auto_updates true`, which is almost
-  all of them, so by default nothing happens. Add `--greedy` (or set
-  `HOMEBREW_UPGRADE_GREEDY`) and brew reinstalls its older pinned version over
-  the app that had updated itself. **Never pass `--greedy` here.**
-  `update-tools.sh` runs `brew upgrade --formula`, never `--cask`.
-- `brew install --cask` on an app already in `/Applications` from a manual
-  download either refuses or overwrites it. Passing `--adopt` tries to take
-  the existing app over in place instead, and `install.sh` and
-  `update-tools.sh` both do. It often cannot; see below.
+- `brew upgrade --cask` skips casks marked `auto_updates true`, which is nearly
+  all of them, so by default nothing happens. Add `--greedy`, or set
+  `HOMEBREW_UPGRADE_GREEDY`, and brew reinstalls its older pinned version over
+  the app that had moved on. `update-tools.sh` runs `brew upgrade --formula` and
+  never touches casks.
+- `brew install --cask` on an app already in `/Applications` either refuses or
+  overwrites it. `--adopt` tries to take the existing app over in place instead.
+
+**Warning:** never run `brew upgrade --cask --greedy` on a machine set up from
+this repo. It is the one command that turns a working app into an older one.
+
+### Why `--adopt` usually fails
+
+Three things get in the way, so expect adoption not to work:
+
+- It adopts only an app **identical** to the cask's version. Every app worth
+  tracking updates itself, so it drifts within days. Tried across six apps here,
+  five had already moved past the cask.
+- It runs `sudo chgrp -hR admin` on the bundle, so it needs a terminal that can
+  ask for a password and never works unattended.
+- With SIP enabled, that `chgrp` fails outright on a bundle owned by
+  `root:wheel`, which is how a pkg installer leaves one.
+
+None of that matters much, because the file's job is a fresh machine. On a
+machine where the apps already exist, `doctor.sh` reports an unmanaged app as a
+note rather than a problem: the app is there, which is what makes two machines
+equivalent.
+
+To hand one to brew anyway, let it reinstall:
+
+```bash
+brew install --cask <name>
+```
+
+That replaces the bundle and registers it. Settings in `~/Library` are
+untouched.
 
 ### What cannot be tracked
 
-A cask whose artifact is a `pkg` rather than an `app` cannot be adopted:
-`--adopt` only works on app bundles, so brew has no way to take over an
-existing install and runs the vendor's installer instead. For an app with a
-system extension or a login item, such as Tailscale, that is a disruptive
-reinstall rather than a no-op. Check before adding one:
+A cask whose artifact is a `pkg` rather than an `app` cannot be adopted at all,
+so brew runs the vendor's installer instead. For an app with a system extension
+or a login item, such as Tailscale, that is a disruptive reinstall. Check before
+adding one:
 
 ```bash
 brew info --cask --json=v2 <name> | grep -o '"pkg"'
 ```
 
-A self-updating CLI is the other case to avoid: its cask pins a version while
-the tool updates itself, so brew keeps reinstalling the older one. The Claude
-Code binary is the example here, and it is installed natively instead.
+A self-updating CLI is the other case to avoid, for the same reason an app is:
+its cask pins a version while the tool updates itself. The Claude Code binary is
+the example here, and it is installed natively.
 
 ### Tracked apps
 
 Ghostty, VS Code, Obsidian, Docker Desktop, DBeaver Community, NordPass and
 Slack.
 
-Anything not listed is not managed by this repo. Nothing removes it,
-and doctor does not report it, so an app you want on one laptop only needs no
-bookkeeping.
-
-Add one by appending it to `bootstrap/cask-apps.txt`, then run
-`./scripts/doctor.sh` on the other laptop to see it reported as missing.
+Anything else is not managed by this repo. Nothing removes it and `doctor.sh`
+does not report it, so an app you want on one laptop only needs no bookkeeping.
+To track one, append it to the file, then run `./scripts/doctor.sh` on the other
+laptop to see it reported as missing.
 
 ---
 
-## Update scripts
+## Update script
 
-**File**: `scripts/update-tools.sh`
+`scripts/update-tools.sh` brings a machine back in line with the repo. It:
 
-Synchronizes configuration changes across all machines.
+1. Pulls the repo, then re-executes itself if the pull changed anything, so a
+   half-old script never runs on.
+2. Upgrades Homebrew formulas with `brew upgrade --formula`, never casks.
+3. Installs anything added to the formula and cask manifests.
+4. Updates the VS Code extensions and copies the settings over, backing up the
+   existing ones first.
+5. Updates mise itself with `mise self-update`, installs what
+   `mise/config.toml` pins, then updates rustup and conda.
+6. Refreshes the configuration symlinks, leaving any regular file in place.
 
-**What it does**:
-1. Pulls the repo, then re-executes itself if the pull brought in changes, so
-   a half-old and half-new script never runs
-2. Updates Homebrew formulas (`brew upgrade --formula`, never casks)
-3. Installs anything added to `brew-packages.txt` and `cask-apps.txt`
-4. Updates VS Code extensions and copies the settings over, backing up the
-   existing ones first
-5. Updates the version managers for the mode this machine was installed in,
-   read from `~/.dev-env/state.json`, so a mise machine is never handed nvm
-   and pyenv as well
-6. Refreshes the configuration symlinks, leaving any regular file in place
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Print every command it would run. Implies `--no-pull`. |
+| `--no-pull` | Use the working tree as it stands. |
+| `--help` | Print usage. |
 
-**Usage**:
-```bash
-./scripts/update-tools.sh
-```
-
-Preview without changing anything:
 ```bash
 ./scripts/update-tools.sh --dry-run
 ```
 
-Skip the pull and use the checkout as it stands:
-```bash
-./scripts/update-tools.sh --no-pull
-```
-
-It stops short of pulling when the checkout has uncommitted changes, rather
-than failing partway through.
-
-After running, restart your terminal or:
-```bash
-source ~/.zshrc
-```
-
-**Options**:
-
-| Flag | Effect |
-|------|--------|
-| `--dry-run` | Print every command it would run, change nothing. Implies `--no-pull`. |
-| `--no-pull` | Use the working tree as it stands. |
-| `--help` | Usage. |
-
----
+It declines to pull when the checkout has uncommitted changes, rather than
+failing partway through. When it finishes, open a new terminal or run
+`source ~/.zshrc`.
