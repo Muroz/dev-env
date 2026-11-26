@@ -1,0 +1,40 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # macOS, because the scripts are macOS-only: they assume Homebrew,
+    # /Applications and `brew list --cask`.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: brew install shellcheck
+
+      - name: Run checks
+        # --fast skips the installer dry runs. They need a configured
+        # Homebrew and would report a runner's packages, not this repo's
+        # correctness, so they stay a local check.
+        run: ./scripts/check.sh --fast
+
+      - name: Confirm the dry runs change nothing
+        # Narrower than the full dry run: proves the installer touches no
+        # tracked file, which is the regression worth guarding in CI.
+        run: |
+          ./bootstrap/install.sh --dry-run > /dev/null
+          ./bootstrap/install.sh --dry-run --use-mise > /dev/null
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "A dry run modified the checkout:"
+            git status --porcelain
+            exit 1
+          fi

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Runs the repo's quality gate before each commit.
+#
+# Installed by ./bootstrap/install.sh, or by hand:
+#   ln -sfn ../../bootstrap/hooks/pre-commit .git/hooks/pre-commit
+#
+# --fast skips the installer dry runs, which take too long for a commit hook.
+# CI runs the full set.
+#
+# To commit anyway: git commit --no-verify
+
+set -o pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+if [ ! -x "$REPO_ROOT/scripts/check.sh" ]; then
+    echo "pre-commit: scripts/check.sh is missing, skipping checks" >&2
+    exit 0
+fi
+
+if ! "$REPO_ROOT/scripts/check.sh" --fast; then
+    echo ""
+    echo "pre-commit: checks failed. Fix them, or commit with --no-verify."
+    exit 1
+fi
