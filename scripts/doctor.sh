@@ -424,12 +424,32 @@ check_repo_state() {
         ok "checkout is clean"
     fi
 
-    git fetch --quiet 2>/dev/null
-    local behind
-    behind=$(git rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)
-    if [ "$behind" -gt 0 ] 2>/dev/null; then
+    # A failed fetch used to be swallowed, and the comparison below then ran
+    # against stale refs and reported "up to date". That is how three months
+    # of commits on the other machine went unnoticed here: the SSH remote was
+    # unreachable because no key was loaded, and fetch failed in silence.
+    if ! git fetch --quiet 2>/dev/null; then
+        drift "cannot reach the remote, so the comparison below is stale"
+        fix "git fetch    # and read the error"
+        fix "ssh-add ~/.ssh/id_ed25519    # if it is an SSH key problem"
+    fi
+
+    local behind ahead
+    behind=$(git rev-list --count 'HEAD..@{upstream}' 2>/dev/null)
+    ahead=$(git rev-list --count '@{upstream}..HEAD' 2>/dev/null)
+
+    if [ -z "$behind" ] || [ -z "$ahead" ]; then
+        drift "this branch has no upstream to compare against"
+        fix "git branch --set-upstream-to=origin/$(git branch --show-current)"
+    elif [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
+        drift "diverged from the remote: $ahead local, $behind remote commit(s)"
+        fix "git log --oneline @{upstream}..HEAD    # yours"
+        fix "git log --oneline HEAD..@{upstream}    # theirs"
+    elif [ "$behind" -gt 0 ]; then
         drift "$behind commit(s) behind the remote"
         fix "./scripts/update-tools.sh"
+    elif [ "$ahead" -gt 0 ]; then
+        note "$ahead commit(s) not pushed yet"
     else
         ok "up to date with the remote"
     fi
