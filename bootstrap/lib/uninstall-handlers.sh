@@ -33,6 +33,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 source "$SCRIPT_DIR/state.sh"
 source "$SCRIPT_DIR/packages.sh"
+
+# ============================================================================
+# Shell config edits
+# ============================================================================
+
+# install.sh symlinks $HOME/.zshrc to the repo's shell/zshrc, and sed -i
+# writes THROUGH a symlink. Stripping lines here would rewrite the tracked
+# file, leave the checkout dirty, and delete config the repo deliberately
+# ships — the nvm fallback among it. When the file is managed, say so and
+# leave it; the repo decides what loads.
+strip_from_zshrc() {
+    local what="$1"
+    shift
+
+    [ -f "$HOME/.zshrc" ] || return 0
+
+    if [ -L "$HOME/.zshrc" ]; then
+        info "Shell config is symlinked to the repo; leaving its $what lines alone"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would strip $what lines from the shell config"
+        return 0
+    fi
+
+    sed -i.bak "$@" "$HOME/.zshrc" 2>/dev/null
+    rm -f "$HOME/.zshrc.bak"
+}
 source "$SCRIPT_DIR/sections.sh"
 
 # ============================================================================
@@ -270,9 +299,13 @@ uninstall_nvm() {
     fi
 
     if [ "$DRY_RUN" = true ]; then
-        info "[DRY RUN] Would remove: $HOME/.nvm"
         if [ "$REMOVE_DATA" = false ] && [ "$node_versions" -gt 0 ]; then
-            info "[DRY RUN] Would preserve $node_versions Node version(s)"
+            # The versions live inside .nvm, so "remove .nvm" would have been
+            # a lie: only everything beside versions/ is removed.
+            info "[DRY RUN] Would remove everything in $HOME/.nvm except versions/"
+            info "[DRY RUN] Would keep $node_versions Node version(s) in $HOME/.nvm/versions"
+        else
+            info "[DRY RUN] Would remove: $HOME/.nvm, including every Node version"
         fi
         return 0
     fi
@@ -290,10 +323,7 @@ uninstall_nvm() {
     fi
 
     # Clean up shell config
-    if [ -f "$HOME/.zshrc" ]; then
-        sed -i.bak '/NVM_DIR/d; /nvm\.sh/d; /nvm bash_completion/d' "$HOME/.zshrc" 2>/dev/null
-        rm -f "$HOME/.zshrc.bak"
-    fi
+    strip_from_zshrc "nvm" '/NVM_DIR/d; /nvm\.sh/d; /nvm bash_completion/d'
 
     record_section_uninstalled "$section"
     success "nvm removed"
@@ -330,9 +360,13 @@ uninstall_pyenv() {
 
     if [ "$DRY_RUN" = true ]; then
         info "[DRY RUN] Would uninstall pyenv via brew"
-        info "[DRY RUN] Would remove: $HOME/.pyenv"
         if [ "$REMOVE_DATA" = false ] && [ "$python_versions" -gt 0 ]; then
-            info "[DRY RUN] Would preserve $python_versions Python version(s)"
+            # The versions live inside .pyenv, so naming the directory alone
+            # would overstate what goes.
+            info "[DRY RUN] Would remove everything in $HOME/.pyenv except versions/"
+            info "[DRY RUN] Would keep $python_versions Python version(s) in $HOME/.pyenv/versions"
+        else
+            info "[DRY RUN] Would remove: $HOME/.pyenv, including every Python version"
         fi
         return 0
     fi
@@ -357,10 +391,7 @@ uninstall_pyenv() {
     fi
 
     # Clean up shell config
-    if [ -f "$HOME/.zshrc" ]; then
-        sed -i.bak '/pyenv init/d; /PYENV_ROOT/d' "$HOME/.zshrc" 2>/dev/null
-        rm -f "$HOME/.zshrc.bak"
-    fi
+    strip_from_zshrc "pyenv" '/pyenv init/d; /PYENV_ROOT/d'
 
     record_section_uninstalled "$section"
     success "pyenv removed"
@@ -392,10 +423,7 @@ uninstall_bun() {
     fi
 
     # Clean up shell config
-    if [ -f "$HOME/.zshrc" ]; then
-        sed -i.bak '/BUN_INSTALL/d; /_bun/d; /\.bun\/bin/d' "$HOME/.zshrc" 2>/dev/null
-        rm -f "$HOME/.zshrc.bak"
-    fi
+    strip_from_zshrc "bun" '/BUN_INSTALL/d; /_bun/d; /\.bun\/bin/d'
 
     record_section_uninstalled "$section"
     success "Bun removed"
@@ -469,10 +497,7 @@ uninstall_mise() {
     fi
 
     # Clean up shell config
-    if [ -f "$HOME/.zshrc" ]; then
-        sed -i.bak '/mise activate/d; /command -v mise/d' "$HOME/.zshrc" 2>/dev/null
-        rm -f "$HOME/.zshrc.bak"
-    fi
+    strip_from_zshrc "mise" '/mise activate/d; /command -v mise/d'
 
     record_section_uninstalled "$section"
     success "mise removed"
@@ -710,10 +735,7 @@ uninstall_shell_config() {
     rm -f "$HOME/.zshrc.local"
 
     # Remove sourcing line from .zshrc if it exists
-    if [ -f "$HOME/.zshrc" ]; then
-        sed -i.bak '/\.zshrc\.local/d' "$HOME/.zshrc" 2>/dev/null
-        rm -f "$HOME/.zshrc.bak"
-    fi
+    strip_from_zshrc "local-config" '/\.zshrc\.local/d'
 
     record_section_uninstalled "$section"
     success "Shell configuration removed"
