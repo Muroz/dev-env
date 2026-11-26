@@ -11,7 +11,7 @@
 #   --all                    Uninstall everything
 #   --sections "id1,id2..."  Uninstall specific sections or groups (comma-separated)
 #   --dry-run                Preview changes without making modifications
-#   --remove-data            Remove user data (Node versions, virtualenvs, etc.)
+#   --remove-data            Remove user data: tool versions and virtualenvs
 #   --force                  Skip confirmation prompts
 #   --restore-backups        Restore original config files from backup
 #   --status                 Show what's currently installed
@@ -72,7 +72,7 @@ Options:
   --all                    Uninstall everything
   --sections "id1,id2..."  Uninstall specific sections (comma-separated)
   --dry-run                Preview changes without making modifications
-  --remove-data            Remove user data (Node versions, virtualenvs, etc.)
+  --remove-data            Remove user data: tool versions and virtualenvs
   --force                  Skip confirmation prompts
   --restore-backups        Restore original config files from backup
   --status                 Show what's currently installed
@@ -396,11 +396,11 @@ execute_uninstall() {
 
     # Data preservation notice
     if [ "$REMOVE_DATA" = false ]; then
-        info "User data will be preserved (Node versions, Python virtualenvs, etc.)"
+        info "User data will be preserved: Node versions and Python virtualenvs"
         info "Use --remove-data to remove all data"
         echo ""
     else
-        warning "User data will be REMOVED (Node versions, Python virtualenvs, etc.)"
+        warning "User data will be REMOVED: Node versions and Python virtualenvs"
         echo ""
     fi
 

@@ -1,190 +1,151 @@
 # Uninstalling
 
-The uninstaller removes all or part of what `bootstrap/install.sh`
-installed. Every section can be removed on its own, and user data is
-kept unless you ask for it to go.
+`bootstrap/uninstall.sh` removes all or part of what `bootstrap/install.sh`
+put in place. It reads `~/.dev-env/state.json` to know what the installer
+recorded, so it removes what this repo added and leaves the rest alone.
+
+Tool versions you downloaded are kept unless you ask for them to go.
+
+- [Remove everything](#remove-everything)
+- [Remove part of it](#remove-part-of-it)
+- [Sections](#sections)
+- [Groups](#groups)
+- [Restore the original files](#restore-the-original-files)
+- [Options](#options)
 
 ---
 
-## Full uninstall
+## Remove everything
 
-Remove everything installed by the bootstrap script:
-
-```bash
-cd ~/dev-env
-./bootstrap/uninstall.sh --all
-```
-
-The script will:
-- Show what will be removed
-- Request confirmation
-- Uninstall selected components
-- Preserve user data by default (Node versions, Python virtualenvs)
-- Display a detailed summary showing:
-  - ✓ Successfully uninstalled sections
-  - ✗ Failed sections (if any errors occurred)
-  - ○ Sections that would be affected (in dry-run mode)
-- Provide option to restore backups
-
-## Selective uninstall
-
-Remove specific components only:
-
-```bash
-# Remove version managers
-./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
-
-# Switch from nvm/pyenv to mise
-./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
-
-# Remove VS Code extensions
-./bootstrap/uninstall.sh --sections "vscode_extensions"
-```
-
-## Preview changes (dry-run)
-
-See what would be removed without making changes:
+Preview first. Nothing changes:
 
 ```bash
 ./bootstrap/uninstall.sh --all --dry-run
 ```
 
-## Remove user data
-
-By default, user data is preserved (Node.js versions, Python virtualenvs, globally installed packages). To remove everything including data:
+Then remove:
 
 ```bash
-./bootstrap/uninstall.sh --all --remove-data
+./bootstrap/uninstall.sh --all
 ```
 
-**Warning**: This will delete:
-- All Node.js versions and npm packages (if using nvm)
-- All Python versions and virtualenvs (if using pyenv)
-- All mise-managed tools (if using mise)
+The script lists what it is about to remove, asks you to confirm, works
+through the sections in reverse dependency order and prints a summary of what
+succeeded and what failed.
 
-## Check installation status
+## Remove part of it
 
-See what's currently installed:
+Name the sections you want gone:
+
+```bash
+./bootstrap/uninstall.sh --sections nvm,pyenv,bun
+```
+
+Or name a group:
+
+```bash
+./bootstrap/uninstall.sh --sections version_managers
+```
+
+To see what is on the machine before deciding:
 
 ```bash
 ./bootstrap/uninstall.sh --status
-
-# Detailed view with package lists
-./bootstrap/uninstall.sh --status --verbose
+./bootstrap/uninstall.sh --status --verbose   # with package lists
 ```
 
-## Restore backups
+## Sections
 
-Original config files are backed up before being replaced. To restore them:
+```bash
+./bootstrap/uninstall.sh --list-sections
+```
+
+| Section | Removes |
+|---------|---------|
+| `homebrew` | Homebrew itself, and only when nothing else depends on it. |
+| `brew_packages` | The formulas in `bootstrap/brew-packages.txt`. |
+| `brew_casks` | The applications in `bootstrap/cask-apps.txt` that brew manages. |
+| `oh_my_zsh` | The oh-my-zsh framework. |
+| `nvm` | nvm, both the Homebrew formula and `~/.nvm`. |
+| `pyenv` | pyenv, both the formula and `~/.pyenv`. |
+| `bun` | A standalone bun install at `~/.bun`. |
+| `mise` | mise and its configuration symlink. |
+| `rust` | The rustup toolchain. |
+| `symlinks` | `~/.zshrc`, `~/.gitconfig` and `~/.gitignore_global`. |
+| `vscode_extensions` | The extensions in `editors/vscode/extensions.txt`. |
+| `git_config` | Git settings this repo applied. |
+| `shell_config` | `~/.zshrc.local`. |
+| `drift_agent` | The weekly drift check, unloaded from launchd and deleted. |
+
+nvm, pyenv and bun remain as sections although nothing installs them any more.
+mise replaced all three, and these are how a machine still carrying them gets
+cleaned up.
+
+A cask section only removes an application Homebrew actually manages. One you
+installed by hand is left alone, whether or not it appears in the manifest.
+
+## Groups
+
+A group is shorthand for several sections:
+
+| Group | Expands to |
+|-------|-----------|
+| `version_managers` | `nvm`, `pyenv`, `bun`, `mise`, `rust` |
+| `configs` | `symlinks`, `git_config`, `shell_config` |
+| `minimal` | The same three as `configs` |
+| `vscode` | `vscode_extensions` |
+| `homebrew_all` | `homebrew`, `brew_packages`, `brew_casks` |
+| `all` | Every section, the same as `--all` |
+
+## Restore the original files
+
+Before replacing a configuration file with a symlink, the installer copies the
+original into `~/.dotfiles-backup-<timestamp>`. To put those files back:
 
 ```bash
 ./bootstrap/uninstall.sh --restore-backups
 ```
 
-## Available sections
+## Options
 
-You can uninstall any of these sections individually:
+| Flag | Effect |
+|------|--------|
+| `--all` | Remove every installed section. |
+| `--sections "a,b"` | Remove the named sections or group. |
+| `--dry-run` | Print what would happen. Nothing changes. |
+| `--remove-data` | Also delete downloaded tool versions. |
+| `--force` | Skip the confirmation prompts. |
+| `--restore-backups` | Put the original configuration files back. |
+| `--status` | Print what is currently installed. |
+| `--list-sections` | Print the sections and groups. |
+| `--verbose` | Print more detail while working. |
+| `--help` | Print usage and examples. |
 
-**Individual Sections:**
-- **homebrew** - Homebrew package manager (only removed if safe)
-- **brew_packages** - Homebrew formula packages
-- **brew_casks** - GUI applications (claude-code)
-- **oh_my_zsh** - Oh-My-Zsh framework
-- **nvm** - Node Version Manager (standard mode only)
-- **pyenv** - Python version manager (standard mode only)
-- **bun** - Bun JavaScript runtime (standard mode only)
-- **mise** - Mise unified version manager (mise mode only)
-- **rust** - Rust toolchain
-- **symlinks** - Configuration symlinks (.zshrc, .gitconfig, .gitignore_global)
-- **vscode_extensions** - VS Code extensions
-- **git_config** - Git user configuration
-- **shell_config** - Local shell configuration (~/.zshrc.local)
+## What is kept, and what `--remove-data` deletes
 
-**Section Groups:**
+By default the uninstaller removes a version manager but keeps what it
+downloaded. Removing `nvm` empties `~/.nvm` except for `versions/`, and
+removing `pyenv` does the same to `~/.pyenv`, so your interpreters survive and
+you can reach them by full path.
 
-You can also uninstall groups of related sections:
-
-```bash
-# Remove all version managers
-./bootstrap/uninstall.sh --sections "version_managers"
-# Includes: nvm, pyenv, bun, mise, rust
-
-# Remove all configuration files
-./bootstrap/uninstall.sh --sections "configs"
-# Includes: symlinks, git_config, shell_config
-
-# Remove VS Code setup
-./bootstrap/uninstall.sh --sections "vscode"
-# Includes: vscode_extensions
-
-# Remove all Homebrew components
-./bootstrap/uninstall.sh --sections "homebrew_all"
-# Includes: homebrew, brew_packages, brew_casks
-
-# Minimal setup (just configs)
-./bootstrap/uninstall.sh --sections "minimal"
-# Includes: symlinks, git_config, shell_config
-
-# Everything
-./bootstrap/uninstall.sh --sections "all"
-# Same as --all flag
-```
-
-## Safety features
-
-The uninstall system includes multiple safety mechanisms:
-
-1. **Data Preservation**: User data kept by default (use `--remove-data` to remove)
-2. **Homebrew Protection**: Only removed if no other packages depend on it
-3. **Confirmation Prompts**: Interactive confirmation before removing sections
-4. **Dry-Run Mode**: Preview changes before applying them
-5. **Backup Restoration**: Restore original config files from backups
-6. **State Tracking**: Knows what was installed and in which mode
-
-## Command-Line options
-
-**Uninstall Flags:**
-
-- `--all` - Uninstall all installed sections
-- `--sections "id1,id2,..."` - Uninstall specific sections (comma-separated list or group name)
-- `--dry-run` - Preview changes without making modifications
-- `--remove-data` - Remove user data (Node.js versions, Python virtualenvs)
-- `--force` - Skip confirmation prompts (use with caution)
-- `--restore-backups` - Restore original config files from backup directory
-- `--status` - Show current installation status
-- `--list-sections` - Display all available sections and groups
-- `--verbose` - Show detailed output during uninstallation
-- `--help` - Display help message with examples
-
-**Examples:**
+**Warning:** `--remove-data` deletes those version directories, every global
+npm package installed under them and every mise-managed tool. There is no
+backup of a downloaded interpreter, so a `--remove-data` run means
+reinstalling anything you still want.
 
 ```bash
-# Show all options
-./bootstrap/uninstall.sh --help
-
-# List available sections and groups
-./bootstrap/uninstall.sh --list-sections
-
-# Check what's installed
-./bootstrap/uninstall.sh --status
-
-# Preview full uninstall
-./bootstrap/uninstall.sh --all --dry-run
-
-# Uninstall specific sections
-./bootstrap/uninstall.sh --sections "nvm,pyenv,bun"
-
-# Uninstall using group
-./bootstrap/uninstall.sh --sections "version_managers"
-
-# Force uninstall without prompts (dangerous!)
-./bootstrap/uninstall.sh --all --force
-
-# Remove everything including user data
 ./bootstrap/uninstall.sh --all --remove-data
-
-# Verbose output for debugging
-./bootstrap/uninstall.sh --all --verbose
 ```
 
----
+## Safety
+
+Six things make the uninstaller harder to regret:
+
+- Downloaded tool versions survive unless you pass `--remove-data`.
+- Homebrew comes off only when nothing else depends on it.
+- Each section asks for confirmation, unless you pass `--force`.
+- `--dry-run` prints the same work without doing any of it.
+- `--restore-backups` puts the original configuration files back.
+- The shell configuration is left untouched when `~/.zshrc` is a symlink into
+  this repo, because editing it would write through the symlink into a tracked
+  file.
