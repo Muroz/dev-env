@@ -337,7 +337,7 @@ check_no_secrets() {
     # A file the global gitignore hides is a file that silently will not ship.
     local hidden
     hidden=$(git ls-files --others --ignored --exclude-standard \
-        -- bootstrap scripts shell git editors mise '*.md' 2>/dev/null)
+        -- bootstrap scripts shell git editors mise docs '*.md' 2>/dev/null)
 
     if [ -n "$hidden" ]; then
         fail "repo source files are ignored by git:"
